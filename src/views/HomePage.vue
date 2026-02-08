@@ -2,7 +2,7 @@
   <ion-page>
     <ion-header>
       <ion-toolbar>
-        <ion-title>Decentralized Network</ion-title>
+        <ion-title>Intepoll</ion-title>
         <ion-buttons slot="end">
           <ion-button @click="$router.push('/profile')">
             <ion-icon :icon="personCircleOutline"></ion-icon>
@@ -30,10 +30,6 @@
           <ion-segment-button value="create">
             <ion-icon :icon="addCircleOutline"></ion-icon>
             <ion-label>Create</ion-label>
-          </ion-segment-button>
-          <ion-segment-button value="network">
-            <ion-icon :icon="statsChartOutline"></ion-icon>
-            <ion-label>Network</ion-label>
           </ion-segment-button>
         </ion-segment>
       </ion-toolbar>
@@ -68,7 +64,6 @@
               @downvote="handleDownvote(item.data)"
               @comments="navigateToPost(item.data)"
             />
-            
             <!-- Poll Card -->
             <PollCard 
               v-else-if="item.type === 'poll'"
@@ -203,152 +198,6 @@
         </div>
       </div>
 
-      <!-- NETWORK TAB - Network & Connectivity -->
-      <div v-else-if="activeTab === 'network'" class="network-tab">
-        <div class="ion-padding">
-          <h2>Network Status</h2>
-        </div>
-
-        <!-- Chain Status -->
-        <ChainStatus />
-
-        <!-- P2P Network Status -->
-        <ion-card class="status-card">
-          <ion-card-header>
-            <ion-card-title>P2P Network</ion-card-title>
-          </ion-card-header>
-          <ion-card-content>
-            <div class="status-row">
-              <div class="status-item">
-                <ion-icon :icon="serverOutline" :color="websocketConnected ? 'success' : 'danger'"></ion-icon>
-                <div>
-                  <strong>WebSocket Relay</strong>
-                  <p>{{ websocketConnected ? 'Connected' : 'Disconnected' }}</p>
-                </div>
-              </div>
-              <div class="status-item">
-                <ion-icon :icon="peopleOutline" :color="peerCount > 0 ? 'success' : 'warning'"></ion-icon>
-                <div>
-                  <strong>Active Peers</strong>
-                  <p>{{ peerCount }} peer{{ peerCount !== 1 ? 's' : '' }}</p>
-                </div>
-              </div>
-            </div>
-          </ion-card-content>
-        </ion-card>
-
-        <!-- GunDB Status -->
-        <ion-card class="status-card">
-          <ion-card-header>
-            <ion-card-title>GunDB Status</ion-card-title>
-          </ion-card-header>
-          <ion-card-content>
-            <div class="status-row">
-              <div class="status-item">
-                <ion-icon :icon="cloudOutline" :color="gunConnected ? 'success' : 'danger'"></ion-icon>
-                <div>
-                  <strong>Connection</strong>
-                  <p>{{ gunConnected ? 'Connected' : 'Disconnected' }}</p>
-                </div>
-              </div>
-              <div class="status-item">
-                <ion-icon :icon="syncOutline"></ion-icon>
-                <div>
-                  <strong>Sync Status</strong>
-                  <p>{{ gunSyncStatus }}</p>
-                </div>
-              </div>
-            </div>
-          </ion-card-content>
-        </ion-card>
-
-        <!-- IPFS Status -->
-        <ion-card class="status-card">
-          <ion-card-header>
-            <ion-card-title>IPFS Storage</ion-card-title>
-          </ion-card-header>
-          <ion-card-content>
-            <div class="status-row">
-              <div class="status-item">
-                <ion-icon :icon="imageOutline" :color="ipfsReady ? 'success' : 'medium'"></ion-icon>
-                <div>
-                  <strong>Image Upload</strong>
-                  <p>{{ ipfsReady ? 'Ready' : 'Initializing' }}</p>
-                </div>
-              </div>
-              <div class="status-item">
-                <ion-icon :icon="cubeOutline"></ion-icon>
-                <div>
-                  <strong>Storage</strong>
-                  <p>Decentralized</p>
-                </div>
-              </div>
-            </div>
-          </ion-card-content>
-        </ion-card>
-
-        <!-- Blockchain Status -->
-        <ion-card class="status-card">
-          <ion-card-header>
-            <ion-card-title>Blockchain</ion-card-title>
-          </ion-card-header>
-          <ion-card-content>
-            <div class="status-row">
-              <div class="status-item">
-                <ion-icon :icon="cubeOutline" color="primary"></ion-icon>
-                <div>
-                  <strong>Latest Block</strong>
-                  <p>#{{ blockCount }}</p>
-                </div>
-              </div>
-              <div class="status-item">
-                <ion-icon :icon="checkmarkCircleOutline" :color="isChainValid ? 'success' : 'danger'"></ion-icon>
-                <div>
-                  <strong>Chain Validity</strong>
-                  <p>{{ isChainValid ? 'Valid' : 'Invalid' }}</p>
-                </div>
-              </div>
-            </div>
-          </ion-card-content>
-        </ion-card>
-
-        <!-- Statistics -->
-        <ion-card class="status-card">
-          <ion-card-header>
-            <ion-card-title>Network Statistics</ion-card-title>
-          </ion-card-header>
-          <ion-card-content>
-            <ion-list>
-              <ion-item>
-                <ion-label>
-                  <h3>Total Communities</h3>
-                  <p>{{ totalCommunities }}</p>
-                </ion-label>
-              </ion-item>
-              <ion-item>
-                <ion-label>
-                  <h3>Joined Communities</h3>
-                  <p>{{ joinedCount }}</p>
-                </ion-label>
-              </ion-item>
-              <ion-item>
-                <ion-label>
-                  <h3>Total Posts</h3>
-                  <p>{{ allPosts.length }}</p>
-                </ion-label>
-              </ion-item>
-            </ion-list>
-          </ion-card-content>
-        </ion-card>
-
-        <!-- Refresh Button -->
-        <div class="ion-padding">
-          <ion-button expand="block" @click="refreshStatus">
-            <ion-icon slot="start" :icon="refreshOutline"></ion-icon>
-            Refresh Status
-          </ion-button>
-        </div>
-      </div>
     </ion-content>
   </ion-page>
 </template>
@@ -366,34 +215,23 @@ import {
   IonIcon,
   IonCard,
   IonCardContent,
-  IonCardHeader,
-  IonCardTitle,
   IonSegment,
   IonSegmentButton,
   IonLabel,
   IonSpinner,
-  IonList,
-  IonItem,
   IonChip,
   actionSheetController,
   toastController
 } from '@ionic/vue';
-import { 
-  cube, 
-  personCircleOutline, 
+import {
+  cube,
+  personCircleOutline,
   settingsOutline,
   addCircleOutline,
   earthOutline,
-  cloudOutline,
   peopleOutline,
   homeOutline,
-  statsChartOutline,
   documentTextOutline,
-  serverOutline,
-  syncOutline,
-  imageOutline,
-  cubeOutline,
-  checkmarkCircleOutline,
   refreshOutline,
   chevronForwardOutline
 } from 'ionicons/icons';
@@ -402,7 +240,6 @@ import { useChainStore } from '../stores/chainStore';
 import { useCommunityStore } from '../stores/communityStore';
 import { usePostStore } from '../stores/postStore';
 import { usePollStore } from '../stores/pollStore';
-import ChainStatus from '../components/ChainStatus.vue';
 import CommunityCard from '../components/CommunityCard.vue';
 import PostCard from '../components/PostCard.vue';
 import PollCard from '../components/PollCard.vue';
@@ -418,17 +255,7 @@ const pollStore = usePollStore();
 const activeTab = ref('home'); // Start on home
 const communityFilter = ref('all');
 const isLoadingPosts = ref(false);
-const hasLoadedPosts = ref(false); // Track if posts have been loaded
-
-// Network status
-const websocketConnected = ref(false);
-const peerCount = ref(0);
-const gunConnected = ref(false);
-const gunSyncStatus = ref('Initializing...');
-const ipfsReady = ref(false);
-
-// Update interval
-let statusInterval: any = null;
+const hasLoadedPosts = ref(false);
 
 const displayedCommunities = computed(() => {
   if (communityFilter.value === 'joined') {
@@ -464,22 +291,6 @@ const combinedFeed = computed(() => {
   return items.sort((a, b) => b.createdAt - a.createdAt);
 });
 
-const blockCount = computed(() => {
-  return chainStore.chain?.length || 0;
-});
-
-const isChainValid = computed(() => {
-  return chainStore.isValid ?? false;
-});
-
-const totalCommunities = computed(() => {
-  return communityStore.communities?.length || 0;
-});
-
-const joinedCount = computed(() => {
-  return communityStore.joinedCommunities?.size || 0;
-});
-
 const joinedCommunities = computed(() => {
   return communityStore.communities.filter(c => communityStore.isJoined(c.id));
 });
@@ -495,8 +306,6 @@ function hasDownvoted(postId: string): boolean {
 }
 
 async function handleUpvote(post: Post) {
-  console.log('Upvoting post:', post.id);
-  
   try {
     // Check if already upvoted
     if (hasUpvoted(post.id)) {
@@ -549,8 +358,6 @@ async function handleUpvote(post: Post) {
 }
 
 async function handleDownvote(post: Post) {
-  console.log('Downvoting post:', post.id);
-  
   try {
     // Check if already downvoted
     if (hasDownvoted(post.id)) {
@@ -617,20 +424,16 @@ function navigateToPoll(poll: Poll) {
 
 async function loadAllPosts() {
   if (hasLoadedPosts.value) {
-    console.log('Posts already loaded, skipping');
     return;
   }
   
   if (communityStore.communities.length === 0) {
-    console.log('No communities available to load content from');
     return;
   }
   
   isLoadingPosts.value = true;
   
   try {
-    console.log(`Loading content from ${communityStore.communities.length} communities...`);
-    
     // Load both posts and polls from all communities in parallel
     const loadPromises = communityStore.communities.flatMap(community => [
       postStore.loadPostsForCommunity(community.id),
@@ -640,35 +443,11 @@ async function loadAllPosts() {
     await Promise.all(loadPromises);
     
     hasLoadedPosts.value = true;
-    console.log(`Loaded ${postStore.posts.length} posts and ${pollStore.polls.length} polls`);
   } catch (error) {
     console.error('Error loading content:', error);
   } finally {
     isLoadingPosts.value = false;
   }
-}
-
-function updateNetworkStatus() {
-  // Check WebSocket status
-  try {
-    websocketConnected.value = true; // TODO: Get from WebSocket service
-    peerCount.value = 1; // TODO: Get actual peer count
-  } catch (error) {
-    websocketConnected.value = false;
-    peerCount.value = 0;
-  }
-
-  // Check Gun status
-  try {
-    gunConnected.value = true;
-    gunSyncStatus.value = 'Synced';
-  } catch (error) {
-    gunConnected.value = false;
-    gunSyncStatus.value = 'Error';
-  }
-
-  // IPFS status
-  ipfsReady.value = true;
 }
 
 async function showPostOptions() {
@@ -731,7 +510,6 @@ async function refreshStatus() {
 watch(() => communityStore.communities.length, async (newLength, oldLength) => {
   if (newLength > 0 && oldLength === 0 && !hasLoadedPosts.value) {
     // Communities just finished loading, now load posts
-    console.log('Communities loaded, now loading posts...');
     await loadAllPosts();
   }
 });
@@ -744,27 +522,15 @@ watch(activeTab, async (newTab) => {
 });
 
 onMounted(async () => {
-  console.log('HomePage mounted');
-  
   // Initialize chain
   await chainStore.initialize();
-  
+
   // Load communities (fast)
   await communityStore.loadCommunities();
-
-  // Posts will auto-load via watcher when communities finish loading
-
-  // Update network status
-  updateNetworkStatus();
-
-  // Update status every 10 seconds
-  statusInterval = setInterval(updateNetworkStatus, 10000);
 });
 
 onUnmounted(() => {
-  if (statusInterval) {
-    clearInterval(statusInterval);
-  }
+  // Cleanup if needed
 });
 </script>
 
@@ -795,12 +561,8 @@ onUnmounted(() => {
   color: var(--ion-color-medium);
 }
 
-.posts-list {
-  padding: 0 0px 0px 0px;
-}
-
 .communities-list {
-  padding: 0 0 0px 0;
+  padding: 0;
 }
 
 .empty-state {
@@ -822,39 +584,6 @@ onUnmounted(() => {
   margin: 8px 0;
 }
 
-.status-card {
-  margin: 12px;
-}
-
-.status-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.status-item {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.status-item ion-icon {
-  font-size: 32px;
-  margin-top: 4px;
-}
-
-.status-item strong {
-  display: block;
-  margin-bottom: 4px;
-  font-size: 14px;
-}
-
-.status-item p {
-  margin: 0;
-  font-size: 13px;
-  color: var(--ion-color-medium);
-}
-
 ion-segment {
   padding: 0 12px;
 }
@@ -872,7 +601,6 @@ ion-item {
 }
 
 @media (min-width: 768px) {
-  .posts-list,
   .communities-list {
     max-width: 800px;
     margin: 0 auto;
