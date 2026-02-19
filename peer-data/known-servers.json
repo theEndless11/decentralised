@@ -1,1 +1,10 @@
-[]
+[
+  {
+    "websocket": "wss://interpoll.onrender.com",
+    "gun": "https://interpoll2.onrender.com/gun",
+    "api": "https://interpoll.onrender.com",
+    "addedBy": "peer-l5dfbk2c",
+    "firstSeen": 1771464236650,
+    "selfHosted": true
+  }
+]
