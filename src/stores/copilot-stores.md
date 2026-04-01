@@ -27,6 +27,7 @@ Manages polls loaded from GunDB.
 - `pendingNewPolls` only contains truly new arrivals after initial hydration; `flushNewPolls()` moves them into `pollsMap` and persists seen IDs in localStorage.
 - Pagination: `visibleCount` incremented by `PAGE_SIZE` (10).
 - `createPoll()` checks the current user's `showRealName` preference. Same pseudonym-vs-real-name logic as posts.
+- `injectPoll()` is the safe way to patch a fresher poll snapshot into the store (for example after a vote or API refresh). It now updates `currentPoll` too when vote totals/options changed, while still avoiding regressions from emptier snapshots.
 
 Key refs: `pollsMap`, `currentPoll`, `isLoading`, `visibleCount`  
 Key computed: `polls`, `sortedPolls`

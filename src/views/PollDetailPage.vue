@@ -288,6 +288,7 @@ import { VoteTrackerService } from '../services/voteTrackerService';
 import { AuditService } from '../services/auditService';
 import type { Vote } from '../types/chain';
 import { generatePseudonym } from '../utils/pseudonym';
+import config from '../config';
 
 const route = useRoute();
 const router = useRouter();
@@ -377,6 +378,34 @@ function getOptionPercent(option: { votes: number }): number {
   return Math.round((option.votes / total) * 100);
 }
 
+function getGunRelayWriteUrl(): string {
+  return `${config.relay.gun.replace(/\/gun$/, '')}/db/write`;
+}
+
+async function persistVoteCountsToRelay(updatedPoll: Poll): Promise<void> {
+  const writeUrl = getGunRelayWriteUrl();
+  const optionWrites = updatedPoll.options.map((option, index) =>
+    fetch(writeUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        soul: `v2/communities/${updatedPoll.communityId}/polls/${updatedPoll.id}/options/${index}`,
+        data: { id: option.id, text: option.text, votes: option.votes }
+      })
+    }),
+  );
+
+  await Promise.allSettled(optionWrites);
+  await fetch(writeUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      soul: `v2/communities/${updatedPoll.communityId}/polls/${updatedPoll.id}`,
+      data: { totalVotes: updatedPoll.totalVotes }
+    })
+  });
+}
+
 async function submitVote() {
   if (!poll.value || !canSubmitVote.value || isSubmitting.value) return
   isSubmitting.value = true
@@ -420,47 +449,30 @@ async function submitVote() {
     }
     const receipt = await chainStore.addVote(vote)
 
-    // ── Update vote counts immediately in MySQL via relay ─────────────────
-    const updatedOptions = poll.value.options.map((opt, i) => ({
+    const activePoll = poll.value!
+    const updatedOptions = activePoll.options.map((opt) => ({
       ...opt,
       votes: optionIds.includes(opt.id) ? (opt.votes || 0) + 1 : (opt.votes || 0)
     }))
     const newTotalVotes = updatedOptions.reduce((s, o) => s + o.votes, 0)
-
-    // Write each option vote count directly to MySQL (non-blocking)
-    Promise.all(
-      updatedOptions.map((opt, i) =>
-        fetch('https://interpoll2.endless.sbs/db/write', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            soul: `v2/communities/${poll.value!.communityId}/polls/${poll.value!.id}/options/${i}`,
-            data: { id: opt.id, text: opt.text, votes: opt.votes }
-          })
-        }).catch(() => {})
-      )
-    ).then(() => {
-      // Also update totalVotes on poll node
-      fetch('https://interpoll2.endless.sbs/db/write', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          soul: `v2/communities/${poll.value!.communityId}/polls/${poll.value!.id}`,
-          data: { totalVotes: newTotalVotes }
-        })
-      }).catch(() => {})
-    })
-
-    // Update local display immediately — don't wait for API
-    poll.value = {
-      ...poll.value!,
+    const updatedPoll: Poll = {
+      ...activePoll,
       options: updatedOptions,
       totalVotes: newTotalVotes
     }
 
+    poll.value = updatedPoll
+    pollStore.injectPoll(updatedPoll)
+
+    persistVoteCountsToRelay(updatedPoll).catch((error) => {
+      console.warn('Failed to persist vote counts to relay:', error)
+    })
+
     // Gun vote update — non-blocking
     UserService.getCurrentUser().then(u => {
-      PollService.voteOnPoll(poll.value!.id, optionIds, u.id).catch(() => {})
+      PollService.voteOnPoll(updatedPoll.id, optionIds, u.id).catch((error) => {
+        console.warn('Gun poll count update failed:', error)
+      })
     })
 
     await VoteTrackerService.recordVote(poll.value.id, receipt.blockIndex)
@@ -471,33 +483,6 @@ async function submitVote() {
     localStorage.setItem('voted-polls', JSON.stringify(votedPolls));
 
     (await toastController.create({ message: 'Vote submitted!', duration: 2000 })).present()
-
-    // Reload from Nuxt API after short delay (let MySQL write settle)
-    setTimeout(async () => {
-      try {
-        const res = await fetch(`https://interpoll.endless.sbs/api/poll/${poll.value!.id}`)
-        if (res.ok) {
-          const data = await res.json()
-          if (data?.id && data.options?.length > 0) {
-            pollStore.injectPoll({
-              id: data.id, communityId: data.communityId,
-              authorId: poll.value!.authorId || '',
-              authorName: data.authorName || 'Anonymous',
-              question: data.question, description: data.description || '',
-              options: data.options,
-              createdAt: data.createdAt || Date.now(),
-              expiresAt: data.expiresAt || Date.now() + 86400000,
-              allowMultipleChoices: !!data.allowMultipleChoices,
-              showResultsBeforeVoting: !!data.showResultsBeforeVoting,
-              requireLogin: false, isPrivate: !!data.isPrivate,
-              totalVotes: data.totalVotes || 0,
-              isExpired: !!data.isExpired,
-            })
-            poll.value = pollStore.pollsMap.get(poll.value!.id) || data
-          }
-        }
-      } catch {}
-    }, 1500)
 
   } catch (error) {
     console.error('Vote error:', error);
@@ -522,30 +507,14 @@ async function loadPoll() {
     // Still check device vote in background
     VoteTrackerService.hasVoted(pollId).then(v => { if (v) hasVoted.value = true })
   }
-  // ── Step 2: If no options in cache, fetch from Nuxt API (fast, ~300ms) ────
+  // ── Step 2: If no options in cache, fetch through PollService ──────────────
   if (!poll.value || poll.value.options.length === 0) {
     try {
-      const res = await fetch(`https://interpoll.endless.sbs/api/poll/${pollId}`)
-      if (res.ok) {
-        const data = await res.json()
-        if (data?.id && data.options?.length > 0) {
-          // Patch into store
-          pollStore.injectPoll({
-            id: data.id, communityId: data.communityId,
-            authorId: '', authorName: data.authorName || 'Anonymous',
-            question: data.question, description: data.description || '',
-            options: data.options,
-            createdAt: data.createdAt || Date.now(),
-            expiresAt: data.expiresAt || Date.now() + 86400000,
-            allowMultipleChoices: !!data.allowMultipleChoices,
-            showResultsBeforeVoting: !!data.showResultsBeforeVoting,
-            requireLogin: false, isPrivate: !!data.isPrivate,
-            totalVotes: data.totalVotes || 0,
-            isExpired: !!data.isExpired,
-          })
-          poll.value = pollStore.pollsMap.get(pollId) || data
-          isLoading.value = false
-        }
+      const loadedPoll = await PollService.loadPoll(pollId)
+      if (loadedPoll) {
+        pollStore.injectPoll(loadedPoll)
+        poll.value = pollStore.pollsMap.get(pollId) || loadedPoll
+        isLoading.value = false
       }
     } catch { /* fall through to Gun */ }
   }

@@ -287,6 +287,14 @@ html.dark .post-footer {
 
 /* Mobile Responsive */
 @media (max-width: 576px) {
+  .post-image {
+    height: clamp(180px, 52vw, 240px);
+  }
+
+  .post-image img {
+    height: 100%;
+  }
+
   .post-title {
     font-size: 16px;
   }

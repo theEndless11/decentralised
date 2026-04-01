@@ -162,14 +162,28 @@ export const usePollStore = defineStore('poll', () => {
   }
 
   function injectPoll(poll: Poll) {
-  const existing = pollsMap.value.get(poll.id)
-  // Always update if incoming poll has options and existing doesn't
-  if (!existing || (poll.options.length > 0 && existing.options.length === 0)) {
-    pollsMap.value.set(poll.id, poll)
-    tryDecryptPoll(poll)
+    const existing = pollsMap.value.get(poll.id);
+    const shouldUpdate = !existing
+      || (poll.options.length > 0 && existing.options.length === 0)
+      || poll.options.length > existing.options.length
+      || poll.totalVotes !== existing.totalVotes
+      || poll.options.some((option, index) => {
+        const existingOption = existing.options[index];
+        return !existingOption
+          || existingOption.id !== option.id
+          || existingOption.votes !== option.votes;
+      });
+
+    if (shouldUpdate) {
+      pollsMap.value.set(poll.id, poll);
+      tryDecryptPoll(poll);
+      if (currentPoll.value?.id === poll.id) {
+        currentPoll.value = poll;
+      }
+    }
+
+    seenPollIds.add(poll.id);
   }
-  seenPollIds.add(poll.id)
-}
 
   function saveSeenNow() {
     saveSeenIds(seenPollIds);

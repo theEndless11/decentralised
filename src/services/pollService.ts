@@ -3,10 +3,12 @@ import { EncryptionService } from './encryptionService';
 import { KeyVaultService } from './keyVaultService';
 import config from '../config';
 
-const API_URL = 'https://interpoll.endless.sbs';
-
 function getGunRelayBase(): string {
   return config.relay.gun.replace(/\/gun$/, '');
+}
+
+function getApiBase(): string {
+  return config.relay.api.replace(/\/$/, '');
 }
 
 export interface PollOption {
@@ -49,7 +51,7 @@ async function indexForSearch(type: 'post' | 'poll', id: string, data: any) {
       { type, id, data } as Record<string, unknown>,
       'index',
     );
-    await fetch(`${API_URL}/api/index`, {
+    await fetch(`${getApiBase()}/api/index`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -130,7 +132,7 @@ export class PollService {
   // ── API-first poll fetch (replaces Gun-first approach) ───────────────────────
   private static async loadPollFromAPI(pollId: string): Promise<{ pollData: any | null; options: PollOption[] }> {
     try {
-      const res = await fetch(`${API_URL}/api/poll/${pollId}`, {
+      const res = await fetch(`${getApiBase()}/api/poll/${pollId}`, {
         headers: { 'Cache-Control': 'stale-while-revalidate=30' },
       });
       if (!res.ok) return { pollData: null, options: [] };
