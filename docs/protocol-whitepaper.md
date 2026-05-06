@@ -1,6 +1,6 @@
 # InterPoll Protocol(IPP) Whitepaper
  
-**Version:** 0.2  
+**Version:** 0.3  
 **Status:** Official 
 
 
@@ -8,9 +8,9 @@
 
 ## 1. Ethos
 
-InterPoll is built on a simple principle: **a voice for everyone, with records that are hard to impossible to erase**.
+InterPoll is built on a simple principle: **a voice for everyone, with records that are harder to erase than on any single-server system**.
 
-The protocol is designed so participation does not depend on a single central database. Votes and civic activity are written locally, propagated peer-to-peer, and replicated across distributed storage. In practice, this means discussion and voting history can survive outages, server churn, and total censorship as long as some peers/devices retain data and later reconnect.
+The protocol is designed so participation does not depend on a single central database. Votes and civic activity are written locally, propagated peer-to-peer, and replicated across distributed storage. In practice, this means discussion and voting history can survive outages, server churn, and censorship attempts — provided at least one honest peer, device, or relay retains a copy and later reconnects.
 
 We found that other social media platforms censor a lot, and even if not, shadow-ban it. In our case, anyone can create his algorithm.
 
@@ -20,13 +20,15 @@ Our motto is: **"101 % Uptime!!!"**
 
 ## 2. What the Protocol Is
 
-InterPoll is a the first fully peer-to-peer social protocol, made from three cooperating planes:
+InterPoll is a **browser-first, relay-assisted P2P polling protocol** with local-first storage, tamper-evident receipts, GunDB replication, and eventual convergence. It is made from three cooperating planes:
 
 1. **Integrity plane (local chain):** each client keeps an append-only hash-linked log of actions/votes in IndexedDB.
 2. **Replication plane (GunDB):** polls, communities, posts, comments, users, and media metadata replicate as distributed graph data.
 3. **Coordination plane (WS + BroadcastChannel):** peers discover each other and synchronize new blocks/events quickly across devices and tabs.
 
 The protocol remains usable when parts of the network are unavailable, then converges when connectivity returns. It can even survive without any network at all, as long as devices can keep their local history and later reconnect to peers.
+
+> **Architecture note:** The current implementation relies on WebSocket relays, GunDB relay servers, and optional backend API paths as real infrastructure. This is the correct and realistic architecture for a browser-first system. The protocol does not claim to eliminate relay infrastructure; it is designed to minimise trust requirements on any single relay and allow communities to run their own.
 
 ---
 
@@ -75,16 +77,24 @@ This combination gives a property that is uncommon in polling products: **offlin
 
 ### 4.3 Receipt
 
+A receipt contains **public verification material only**. It does not contain any private key, wallet seed, or recovery secret.
+
 ```ts
 {
-  blockIndex: number,
+  receiptId: string,
+  pollId: string,
+  actionType: string,
   voteHash: string,
+  blockIndex: number,
   chainHeadHash: string,
-  mnemonic: string, // BIP-39
   timestamp: number,
-  pollId: string
+  pubkey: string,
+  signature: string,
+  verificationCode: string  // human-readable lookup code (not a wallet seed or signing secret)
 }
 ```
+
+> **Note on `verificationCode`:** This is a short human-readable code (previously labelled `mnemonic`) used for receipt lookup and display. It is **not** a BIP-39 wallet seed, not a private key, and not a recovery secret. It carries no cryptographic signing authority. Users should not treat it as sensitive wallet material.
 
 ### 4.4 Signed event (Nostr-compatible shape)
 
@@ -121,6 +131,20 @@ On startup, a client:
 4. Joins sync channels (WebSocket + BroadcastChannel).
 5. Announces/learns relay endpoints through discovery (`server-list` and Gun discovery registry).
 
+#### Bootstrap assumptions
+
+A fresh browser peer still needs an initial discovery path. The current assumptions are:
+
+- **Known relay endpoint:** the client is pre-configured with at least one known WebSocket relay URL and one GunDB relay URL (via environment variables or `localStorage` override).
+- **GunDB peer:** the GunDB relay at the configured URL is the first replication peer.
+- **Cached server list:** once a peer has connected at least once, it accumulates known relay endpoints in `localStorage`. These are used for reconnection without any central registry.
+- **Community-provided relays:** communities can run their own relay servers. These are discovered through peer-to-peer `server-list` sharing.
+- **Discovery registry:** relay announcements are also published in GunDB under `v3/server-config/discovery`, providing a secondary discovery channel.
+
+**What happens if all known relays are unavailable?** The client falls back to local-only operation. Votes and actions are still recorded in the local hash-chain (IndexedDB) and replicated to other open tabs via BroadcastChannel. Cross-device sync resumes when any relay becomes reachable again.
+
+**Minimum infrastructure for network restart from zero:** at least one WebSocket relay and one GunDB relay must be reachable by a bootstrap peer. Any peer that retained local chain data can then reseed the network once a relay is available.
+
 ### 5.2 Vote write path
 
 When a user votes:
@@ -154,15 +178,22 @@ Within one browser, `BroadcastChannel('interpoll-sync')` mirrors the same sync s
 
 ---
 
-## 6. Replication semanticcs
+## 6. Replication semantics
 
-InterPoll does not promise mathematical immutability across all adversarial conditions. It does provide strong practical persistence through replication:
+InterPoll separates two distinct guarantees that are often confused:
+
+- **Tamper-evidence** is provided by the local hash-chain. Each block's `previousHash` links to the preceding block's `currentHash`, so any modification of a committed block breaks the chain and is immediately detectable.
+- **Persistence and availability** depend on replication. The local chain exists only on the participant's device. GunDB peers/relays and WebSocket peer sync help spread copies, but data availability still depends on at least one honest peer, device, or relay retaining a copy and later reconnecting.
+
+InterPoll does not promise mathematical immutability or guaranteed data availability under all adversarial conditions. It does provide **stronger practical persistence than a single-server system**:
 
 - Chain history exists on each participant device.
-- Content graph data replicates through Gun peers/relays.
+- Content graph data replicates through GunDB peers/relays.
 - New peers can be seeded from cached relay content and peer sync.
 
-As long as at least some peers/devices retain data and later reconnect, history can be re-propagated. This is the core principle: sooner or later a peer with a copy will log back in and its back up.
+As long as at least some peers/devices retain data and later reconnect, history can be re-propagated. This is the core principle: sooner or later a peer with a copy will log back in and reseed the network.
+
+**In short:** the system is *harder to erase* than a single-server platform, not *impossible to erase*.
 
 ---
 
@@ -199,16 +230,32 @@ This reduces dependence on one host and supports community-run infrastructure.
 
 ---
 
-## 9. Guardrails in case
+## 9. Anti-Abuse Controls
 
-Security/abuse controls exist but are not the protocol’s identity:
+The following mechanisms exist to reduce fraud and spam. They are **practical abuse mitigations**, not cryptographic Sybil resistance. A determined adversary with multiple devices or accounts can still attempt abuse; these controls raise the cost and complexity of doing so.
 
-- optional vote authorization/confirm API flow
-- optional OAuth gating for voting
-- optional invite-code gating for private polls
-- rate limits, bot scoring, and PoW on selected message classes
+| Mechanism | What it does | What it does NOT guarantee |
+|---|---|---|
+| Device fingerprinting | Tracks per-device vote history locally and in the backend registry | Cryptographic uniqueness per human person |
+| Backend vote authorization | In-memory `pollId:deviceId` registry on relay server rejects duplicates | Availability guarantee if relay is offline |
+| Invite codes | Single-use per-poll access codes gated via GunDB | Resistance if invite codes are leaked |
+| OAuth gating | Optionally requires Google/Microsoft login before voting | Anonymity or unlinkability of votes |
+| Rate limits and bot scoring | Reduces automated spam | Guaranteed spam elimination |
+| Proof-of-Work (optional) | Increases cost of high-frequency message floods | Mathematical Sybil resistance |
 
-These are up to you, and need to be made in the context of being interoperable with this whitepaper.
+**What the anti-abuse layer does:**
+- practical duplicate-vote prevention per device
+- private poll access control via invite codes
+- spam and bot mitigation
+- optional backend authorization with audit log
+
+**What the anti-abuse layer does NOT provide:**
+- cryptographic Sybil resistance (one vote per unique person)
+- anonymity against the application origin or relay operator
+- protection from a compromised or malicious frontend bundle
+- guaranteed duplicate-vote prevention if the backend is offline and multiple devices are used
+
+These controls should be deployed together for best effect. Community administrators can choose which layers to enable per poll.
 
 ---
 
@@ -224,7 +271,74 @@ An  implementation should support:
 
 ---
 
-## 11. Reference Implementation Map
+## 11. Relay Trust Assumptions
+
+Since the architecture depends on WebSocket and GunDB relays, the following documents what a malicious or unavailable relay can and cannot do:
+
+| Threat | Can a relay do this? | Client defence |
+|---|---|---|
+| **Censor propagation** | Yes — a relay can drop messages and refuse to forward blocks | Clients can connect to multiple relays; BroadcastChannel provides local-tab delivery without any relay |
+| **Delay sync** | Yes — a relay can throttle or queue messages | Incremental sync re-requests from `lastIndex`, so delayed delivery is eventually resolved |
+| **Hide events from some peers** | Yes — a relay can selectively deliver messages | Clients detect gaps in their local chain index and can re-request missing blocks |
+| **Forge votes or actions** | No — all blocks are signed by the originating client keypair; a relay cannot produce a valid signature for a key it does not hold |  |
+| **Corrupt local chains** | No — clients validate the full chain on ingest; a block with a broken hash link is rejected |  |
+| **Detect inconsistent chain heads** | Yes — clients that receive conflicting chain heads can detect the inconsistency by comparing block hashes and chain lengths |  |
+
+**Summary:** a relay can censor or delay, but it cannot forge or corrupt data that has been locally signed and hash-linked. Clients that connect to multiple relays are more resilient to relay-level censorship.
+
+---
+
+## 12. Browser App-Origin Trust Boundary
+
+Even when network data is hash-linked and signature-protected, there are inherent limitations of the browser runtime that users and operators should understand:
+
+- **What the backend can observe:** the relay server sees client IP addresses, connection metadata, vote authorization requests, and any unencrypted payloads sent over WebSocket. If OAuth is enabled, it can also see OAuth identity tokens.
+- **What GunDB peers/relays can observe:** all GunDB-stored data (polls, posts, communities, user profiles, images) is stored in plaintext. Any GunDB relay that replicates the namespace can read this data.
+- **Vote and action linkability:** all actions are associated with the device's persistent public key. A full observer (e.g. a relay that stores all traffic) can link all actions from the same device across polls.
+- **Device fingerprint linkability:** the device ID is derived from browser properties. It is stable across sessions on the same device and browser profile.
+- **Frontend bundle trust:** the integrity and privacy of all data processed in the browser depends on the frontend bundle being honest. A compromised or malicious frontend bundle could read private keys, exfiltrate votes before signing, or silently modify data. Users relying on the hosted version must trust the application origin.
+
+---
+
+## 13. Receipt Semantics
+
+The receipt is one of the strongest parts of the protocol. The following defines precisely what a receipt proves and does not prove.
+
+**A receipt proves:**
+- a local vote/action was committed to the local hash-chain
+- the action was included at a specific `blockIndex` in the chain
+- the chain head at that time had a specific `chainHeadHash`
+- the action was signed by the `pubkey` included in the receipt
+- the `voteHash` matches the hash of the original vote payload
+
+**A receipt does NOT prove:**
+- global consensus or replication to any specific number of peers
+- final inclusion across all relays or GunDB nodes
+- long-term data availability (a receipt is only as durable as the chain that issued it)
+- that the frontend was honest at the time of signing
+- that the voter was unique or non-Sybil
+
+The `verificationCode` field in the receipt is a short human-readable lookup code. It is **not** a BIP-39 wallet seed, not a private key, and not a recovery secret. It is safe to share as part of a receipt. Private signing keys are never included in a receipt.
+
+---
+
+## 14. Threat Model and Non-Goals
+
+InterPoll currently does NOT guarantee:
+
+- **Global consensus under adversarial partitions** — the protocol converges eventually, but does not guarantee agreement across all peers under adversarial network splits.
+- **Mathematical data availability** — data persistence depends on at least one honest peer, device, or relay retaining a copy and later reconnecting.
+- **Cryptographic Sybil resistance** — the anti-abuse mechanisms raise the cost of duplicate voting but do not provide one-human-one-vote guarantees.
+- **Anonymity against the application origin** — the relay, GunDB nodes, and the application server can observe connection metadata, public keys, and stored content.
+- **Protection from a malicious frontend bundle** — if the frontend served to the browser is compromised, all client-side guarantees may fail.
+- **Censorship resistance if all known relays are blocked** — if all configured relays are unreachable and no BroadcastChannel peers are available, the network is inaccessible.
+- **Permanent availability if no peer retains the data** — if no device, relay, or GunDB node retains a copy of a poll or block, that data is lost.
+
+This is not a list of weaknesses — it is a precise statement of scope. The protocol is designed to be *harder to censor and tamper with* than a single-server platform. Stating these boundaries clearly makes the protocol easier to evaluate and extend.
+
+---
+
+## 15. Reference Implementation Map
 
 - Chain + sync orchestration: `src/stores/chainStore.ts`
 - Chain logic: `src/services/chainService.ts`
