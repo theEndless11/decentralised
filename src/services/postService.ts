@@ -29,6 +29,7 @@ export interface Post {
   isEncrypted?: boolean;
   encryptedContent?: string;
   authTag?: string;
+  encryptionKeyVersion?: number;
   authorPubkey?: string;
   contentSignature?: string;
   /** Client-side only — which GunDB namespace this post came from */
@@ -157,7 +158,17 @@ export class PostService {
     }
 
     const community = post.communityId ? await (await import('./communityService')).CommunityService.getCommunity(post.communityId).catch(() => null) : null;
-    const storedEncKey = post.communityId ? await KeyVaultService.getKey(post.communityId) : undefined;
+    let storedEncKey = post.communityId ? await KeyVaultService.getKey(post.communityId) : undefined;
+    const requiredCommunityKeyVersion = Number(community?.currentKeyVersion) || 1;
+    if (storedEncKey && (storedEncKey.keyVersion || 1) < requiredCommunityKeyVersion) {
+      storedEncKey = await KeyVaultService.getCommunityKeyByVersion(post.communityId, requiredCommunityKeyVersion);
+      if (!storedEncKey) {
+        throw new Error('Community key is outdated on this device. Rejoin/sync the community before posting.');
+      }
+    }
+    if (community?.isEncrypted && !storedEncKey) {
+      throw new Error('No approved community key is available on this device for this encrypted community.');
+    }
     if (storedEncKey && (community === null || community?.isEncrypted)) {
       try {
         const aesKey = await EncryptionService.importKey(storedEncKey.key);
@@ -178,6 +189,7 @@ export class PostService {
         cleanPost.isEncrypted = true;
         cleanPost.encryptedContent = encryptedContent;
         cleanPost.authTag = authTag;
+        cleanPost.encryptionKeyVersion = storedEncKey.keyVersion || 1;
         cleanPost.title = '🔒 Encrypted Post';
         cleanPost.content = '';
         cleanPost.authorId = 'encrypted';
@@ -191,6 +203,7 @@ export class PostService {
         newPost.isEncrypted = true;
         newPost.encryptedContent = encryptedContent;
         newPost.authTag = authTag;
+        newPost.encryptionKeyVersion = storedEncKey.keyVersion || 1;
         newPost.title = '🔒 Encrypted Post';
         newPost.content = '';
         newPost.authorId = 'encrypted';
@@ -532,31 +545,37 @@ export class PostService {
 
   static async decryptPost(post: Post): Promise<Post> {
     if (!post.isEncrypted || !post.encryptedContent) return post;
-    const storedKey = await KeyVaultService.getKey(post.communityId);
-    if (!storedKey) return post;
-    try {
-      const aesKey = await EncryptionService.importKey(storedKey.key);
-      const raw    = JSON.parse(await EncryptionService.decrypt(post.encryptedContent, aesKey));
-      const decrypted = {
-        title:              typeof raw.title              === 'string'  ? raw.title              : post.title,
-        content:            typeof raw.content            === 'string'  ? raw.content            : '',
-        authorId:           typeof raw.authorId           === 'string'  ? raw.authorId           : post.authorId,
-        authorName:         typeof raw.authorName         === 'string'  ? raw.authorName         : post.authorName,
-        authorShowRealName: typeof raw.authorShowRealName === 'boolean' ? raw.authorShowRealName : post.authorShowRealName,
-        authorPubkey:       typeof raw.authorPubkey       === 'string'  ? raw.authorPubkey       : post.authorPubkey,
-        contentSignature:   typeof raw.contentSignature   === 'string'  ? raw.contentSignature   : post.contentSignature,
-        imageIPFS:          typeof raw.imageIPFS          === 'string'  ? raw.imageIPFS          : '',
-        imageThumbnail:     typeof raw.imageThumbnail     === 'string'  ? raw.imageThumbnail     : '',
-      };
-      if (post.authTag) {
-        const valid = await EncryptionService.verifyAuthTag(aesKey, post.authTag, post.id, String(post.createdAt), decrypted.authorId);
-        if (!valid) { console.warn(`Post ${post.id} failed authTag verification`); return post; }
+    const candidateKeys = post.encryptionKeyVersion
+      ? [
+          await KeyVaultService.getCommunityKeyByVersion(post.communityId, post.encryptionKeyVersion),
+          ...(await KeyVaultService.listCommunityKeys(post.communityId)),
+        ].filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+      : await KeyVaultService.listCommunityKeys(post.communityId);
+    for (const storedKey of candidateKeys) {
+      try {
+        const aesKey = await EncryptionService.importKey(storedKey.key);
+        const raw = JSON.parse(await EncryptionService.decrypt(post.encryptedContent, aesKey));
+        const decrypted = {
+          title:              typeof raw.title              === 'string'  ? raw.title              : post.title,
+          content:            typeof raw.content            === 'string'  ? raw.content            : '',
+          authorId:           typeof raw.authorId           === 'string'  ? raw.authorId           : post.authorId,
+          authorName:         typeof raw.authorName         === 'string'  ? raw.authorName         : post.authorName,
+          authorShowRealName: typeof raw.authorShowRealName === 'boolean' ? raw.authorShowRealName : post.authorShowRealName,
+          authorPubkey:       typeof raw.authorPubkey       === 'string'  ? raw.authorPubkey       : post.authorPubkey,
+          contentSignature:   typeof raw.contentSignature   === 'string'  ? raw.contentSignature   : post.contentSignature,
+          imageIPFS:          typeof raw.imageIPFS          === 'string'  ? raw.imageIPFS          : '',
+          imageThumbnail:     typeof raw.imageThumbnail     === 'string'  ? raw.imageThumbnail     : '',
+        };
+        if (post.authTag) {
+          const valid = await EncryptionService.verifyAuthTag(aesKey, post.authTag, post.id, String(post.createdAt), decrypted.authorId);
+          if (!valid) continue;
+        }
+        return { ...post, ...decrypted };
+      } catch {
+        continue;
       }
-      return { ...post, ...decrypted };
-    } catch (err) {
-      console.warn(`Failed to decrypt post ${post.id}:`, err);
-      return post;
     }
+    return post;
   }
 
   static unsubscribeAll(): void {

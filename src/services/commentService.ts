@@ -30,6 +30,7 @@ export interface Comment {
   isEncrypted?: boolean;
   encryptedContent?: string;    // AES-GCM encrypted comment data
   authTag?: string;             // HMAC anti-sabotage tag
+  encryptionKeyVersion?: number;
 }
 
 export interface CreateCommentData {
@@ -87,7 +88,18 @@ export async function createComment(data: CreateCommentData): Promise<Comment> {
 
   // Encrypt content if community is encrypted
   if (data.communityId) {
-    const storedKey = await KeyVaultService.getKey(data.communityId);
+    let storedKey = await KeyVaultService.getKey(data.communityId);
+    const community = await (await import('./communityService')).CommunityService.getCommunity(data.communityId).catch(() => null);
+    const requiredCommunityKeyVersion = Number(community?.currentKeyVersion) || 1;
+    if (storedKey && (storedKey.keyVersion || 1) < requiredCommunityKeyVersion) {
+      storedKey = await KeyVaultService.getCommunityKeyByVersion(data.communityId, requiredCommunityKeyVersion);
+      if (!storedKey) {
+        throw new Error('Community key is outdated on this device. Rejoin/sync the community before commenting.');
+      }
+    }
+    if (community?.isEncrypted && !storedKey) {
+      throw new Error('No approved community key is available on this device for this encrypted community.');
+    }
     if (storedKey) {
       try {
         const aesKey = await EncryptionService.importKey(storedKey.key);
@@ -99,6 +111,7 @@ export async function createComment(data: CreateCommentData): Promise<Comment> {
         comment.encryptedContent = await EncryptionService.encrypt(JSON.stringify(encryptableData), aesKey);
         comment.authTag = await EncryptionService.generateAuthTag(aesKey, comment.id, String(comment.createdAt), comment.authorId);
         comment.isEncrypted = true;
+        comment.encryptionKeyVersion = storedKey.keyVersion || 1;
       } catch (err) {
         console.warn('Failed to encrypt comment:', err);
       }
@@ -138,6 +151,7 @@ export async function createComment(data: CreateCommentData): Promise<Comment> {
       commentNode.get('isEncrypted').put(true);
       commentNode.get('encryptedContent').put(comment.encryptedContent);
       commentNode.get('authTag').put(comment.authTag);
+      commentNode.get('encryptionKeyVersion').put(comment.encryptionKeyVersion || 1);
       // Replace plaintext with placeholder
       commentNode.get('content').put('🔒 Encrypted comment');
       commentNode.get('authorName').put('encrypted');
@@ -251,6 +265,7 @@ export function subscribeToCommentsInPost(
               isEncrypted: commentData.isEncrypted || false,
               encryptedContent: commentData.encryptedContent || undefined,
               authTag: commentData.authTag || undefined,
+              encryptionKeyVersion: Number(commentData.encryptionKeyVersion) || undefined,
             };
             callback(comment);
           }
@@ -303,6 +318,7 @@ export async function getAllCommentsInPost(postId: string): Promise<Comment[]> {
                   isEncrypted: commentData.isEncrypted || false,
                   encryptedContent: commentData.encryptedContent || undefined,
                   authTag: commentData.authTag || undefined,
+                  encryptionKeyVersion: Number(commentData.encryptionKeyVersion) || undefined,
                 };
                 comments.push(comment);
               }
@@ -568,31 +584,34 @@ export function verifyCommentSignature(comment: Comment): 'verified' | 'unverifi
 /** Decrypt an encrypted comment using the stored community key */
 export async function decryptComment(comment: Comment): Promise<Comment> {
   if (!comment.isEncrypted || !comment.encryptedContent) return comment;
+  const candidateKeys = comment.encryptionKeyVersion
+    ? [
+        await KeyVaultService.getCommunityKeyByVersion(comment.communityId, comment.encryptionKeyVersion),
+        ...(await KeyVaultService.listCommunityKeys(comment.communityId)),
+      ].filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+    : await KeyVaultService.listCommunityKeys(comment.communityId);
 
-  const storedKey = await KeyVaultService.getKey(comment.communityId);
-  if (!storedKey) return comment;
+  for (const storedKey of candidateKeys) {
+    try {
+      const aesKey = await EncryptionService.importKey(storedKey.key);
 
-  try {
-    const aesKey = await EncryptionService.importKey(storedKey.key);
-    
-    if (comment.authTag) {
-      const valid = await EncryptionService.verifyAuthTag(aesKey, comment.authTag, comment.id, String(comment.createdAt), comment.authorId);
-      if (!valid) {
-        console.warn(`Comment ${comment.id} failed authTag verification`);
-        return comment;
+      if (comment.authTag) {
+        const valid = await EncryptionService.verifyAuthTag(aesKey, comment.authTag, comment.id, String(comment.createdAt), comment.authorId);
+        if (!valid) continue;
       }
-    }
 
-    const decrypted = JSON.parse(await EncryptionService.decrypt(comment.encryptedContent, aesKey));
-    return {
-      ...comment,
-      content: decrypted.content || comment.content,
-      authorId: decrypted.authorId || comment.authorId,
-      authorName: decrypted.authorName || comment.authorName,
-    };
-  } catch {
-    return comment;
+      const decrypted = JSON.parse(await EncryptionService.decrypt(comment.encryptedContent, aesKey));
+      return {
+        ...comment,
+        content: decrypted.content || comment.content,
+        authorId: decrypted.authorId || comment.authorId,
+        authorName: decrypted.authorName || comment.authorName,
+      };
+    } catch {
+      continue;
+    }
   }
+  return comment;
 }
 
 // Export as CommentService object for compatibility

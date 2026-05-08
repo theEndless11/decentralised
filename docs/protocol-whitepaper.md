@@ -365,22 +365,46 @@ All community/content encryption uses **AES-256-GCM** via the browser's Web Cryp
 
 Each encrypted message/post also includes an **HMAC-SHA256 authentication tag** derived from the community AES key via HKDF (domain-separated with `'interpoll-hmac-auth-v1'`). This provides an additional anti-sabotage check independent of the GCM authentication tag.
 
-### 15.3 Key distribution
+### 15.3 Device identity, key separation, and distribution
 
-There are two ways to join a private community, corresponding to two key distribution methods:
+Private-community access now uses a **device-approved key-envelope model**:
 
-**Invite-link method (random key):**
-1. The community creator generates a random AES-256 key via `crypto.subtle.generateKey`.
-2. An invite URL is generated in the format `{origin}/join/community/{id}#{base64url-key}`.
-3. The `#fragment` portion of the URL is **never sent to any server** — it exists only in the browser's URL bar.
-4. The invitee visits the link, the key is extracted from the fragment, and used to decrypt the community.
-5. The key is stored locally in IndexedDB via `KeyVaultService`.
+- Each device has a signing/identity keypair (Schnorr/secp256k1).
+- Each device has a separate encryption keypair (RSA-OAEP) used only for wrapping/unwrapping community symmetric keys.
+- User profiles include a signed list of approved device public keys.
+- Each community has a symmetric AES key plus `currentKeyVersion`.
+- That community key is encrypted separately for each approved device and stored in `keyRing/{devicePublicKey}`.
 
-**Password method (derived key):**
-1. The creator sets a community password.
-2. The AES-256 key is derived via PBKDF2-SHA-256 with 600,000 iterations and salt = the string literal `communityId + 'interpoll-v2'` (e.g. `c-bitcoin-interpoll-v2`). Note: this is simple string concatenation; community IDs are slugs (`c-{name}`) and the suffix `interpoll-v2` is a fixed domain separator, so collisions are not a practical concern with the slug format used.
-3. Any peer who knows the password and community ID can independently derive the same key.
-4. The derived key is stored locally in IndexedDB for future access.
+This keeps identity/auth keys and content-encryption keys strictly separate.
+
+#### Creation flow
+
+1. Create community AES key.
+2. Encrypt community metadata (`encryptedMeta`) with that key.
+3. Mark the community as key-ring enforced (`keyRingRequired: true`).
+4. Wrap the key for the creator device and store first key-ring envelope.
+5. Persist local active key and versioned key history in IndexedDB.
+
+#### Join flow
+
+Invite-link/password methods are still accepted for compatibility/bootstrap, but in key-ring mode they no longer directly grant decryption.
+
+1. A new device requests access (pending request includes device identity pubkey + device encryption pubkey).
+2. An already-approved device validates and signs approval.
+3. The approved device wraps the current community key for the requesting device and writes a signed key envelope.
+4. The requesting device decrypts envelope with its RSA private key and stores the resulting AES key locally.
+
+#### Member/device removal and rotation
+
+When a member/device is removed:
+
+1. Generate a new community AES key.
+2. Increment `currentKeyVersion`.
+3. Re-wrap the new key for remaining approved devices.
+4. Update metadata encryption for the new version.
+5. Store active + historical key versions locally.
+
+Newly written content uses the latest key version.
 
 ### 15.4 Trust model for encrypted communities
 
@@ -396,7 +420,7 @@ There are two ways to join a private community, corresponding to two key distrib
 - **The frontend must be trusted.** Encryption and decryption happen in the browser. If the frontend bundle is compromised, it could exfiltrate keys or plaintext before encryption.
 - **Invite links must be shared securely.** An invite link in the URL fragment is invisible to servers, but is visible in the user's browser history and can be shared by copy-paste like any URL.
 - **Key loss is permanent.** There is no key recovery mechanism. If a user loses their key (clears IndexedDB, changes browsers) and has no backup, they cannot decrypt community content.
-- **Key revocation is not supported.** There is no mechanism to rotate the community key or revoke access for specific members. All members with the key retain permanent read access to all past content.
+- **Rotation protects future content, not guaranteed retroactive secrecy.** In an eventually consistent peer model, devices that previously cached old keys may still read previously encrypted content. Rotation enforces forward access control for new content versions.
 
 ### 15.5 Key storage
 
@@ -409,9 +433,12 @@ Keys are persisted in the browser's IndexedDB via `KeyVaultService` (`encryption
   key: string,        // base64-encoded AES-256 key
   method: 'invite' | 'password',
   label: string,
-  joinedAt: number
+  joinedAt: number,
+  keyVersion?: number
 }
 ```
+
+For rotated community keys, versioned history entries are also stored under `communityId::v{keyVersion}` so old content can still be decrypted when needed.
 
 - `'community'` — key for a specific private community (covers its posts, polls, and comments).
 - `'chatroom'` — key for a specific encrypted group chat room.
@@ -430,6 +457,7 @@ Keys can be exported as JSON for backup and imported on a different device or br
 - Vote API client path: `src/services/auditService.ts`
 - Relay ingress/egress: `relay-server.js`, `relay-server/relay-server-enhanced.js`
 - Shared protocol validation helpers: `shared-validation/index.js`
-- Encryption: `src/services/encryptionService.ts`, `src/services/keyVaultService.ts`
+- Encryption: `src/services/encryptionService.ts`, `src/services/keyVaultService.ts`, `src/services/deviceKeyService.ts`
 - Invite links: `src/services/inviteLinkService.ts`
-- Private community CRUD: `src/services/communityService.ts` (`createPrivateCommunity`, `joinPrivateCommunity`, `decryptCommunityMeta`)
+- Private community/device approval flows: `src/services/communityService.ts` (`createPrivateCommunity`, `joinPrivateCommunity`, `approveDeviceRequest`, `removeDeviceAndRotateKey`, `decryptCommunityMeta`)
+- Profile/device approval logic: `src/services/userService.ts`

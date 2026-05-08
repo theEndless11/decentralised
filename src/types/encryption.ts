@@ -11,6 +11,34 @@ export interface StoredEncryptionKey {
   method: 'invite' | 'password';
   label: string;             // human-readable name (decrypted community/room name)
   joinedAt: number;          // timestamp when key was stored
+  keyVersion?: number;       // optional key version (for rotated community keys)
+}
+
+export interface DeviceApprovalRecord {
+  devicePublicKey: string;          // Schnorr public key (identity/auth)
+  deviceEncryptionPublicKey: string; // RSA-OAEP public key (SPKI base64)
+  approvedBy: string;               // approver device Schnorr public key
+  approvedAt: number;
+  signature: string;                // Schnorr signature over canonical approval payload
+  status: 'approved' | 'revoked';
+}
+
+export interface DeviceApprovalRequest {
+  userId: string;
+  devicePublicKey: string;
+  deviceEncryptionPublicKey: string;
+  requestedAt: number;
+  method: 'invite' | 'password';
+  signature?: string;             // Schnorr signature proving request origin device
+}
+
+export interface CommunityKeyEnvelope {
+  encryptedCommunityKey: string;     // RSA-OAEP encrypted base64 AES key
+  deviceEncryptionPublicKey: string; // recipient device RSA public key (SPKI base64)
+  approvedBy: string;                // approver device identity pubkey
+  signature: string;                 // Schnorr signature over envelope payload
+  updatedAt: number;
+  keyVersion: number;
 }
 
 /** Parsed from an invite link URL fragment */

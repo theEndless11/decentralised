@@ -3,11 +3,52 @@ import type { StoredEncryptionKey } from '../types/encryption';
 
 export class KeyVaultService {
   private static readonly STORE_NAME = 'encryption-keys';
+  private static readonly COMMUNITY_VERSION_SEP = '::v';
+  private static toCommunityVersionedId(communityId: string, keyVersion: number): string {
+    return `${communityId}${this.COMMUNITY_VERSION_SEP}${keyVersion}`;
+  }
 
   /** Store an encryption key for a community or chat room */
   static async storeKey(entry: StoredEncryptionKey): Promise<void> {
     const db = await StorageService.getDB();
     await db.put(this.STORE_NAME, entry);
+  }
+
+  /** Store/update the active key and a versioned history entry for a community */
+  static async storeCommunityKey(entry: StoredEncryptionKey & { keyVersion: number }): Promise<void> {
+    const db = await StorageService.getDB();
+    const baseEntry: StoredEncryptionKey = {
+      ...entry,
+      id: entry.id,
+      type: 'community',
+      keyVersion: entry.keyVersion,
+    };
+    const versionedEntry: StoredEncryptionKey = {
+      ...baseEntry,
+      id: this.toCommunityVersionedId(entry.id, entry.keyVersion),
+    };
+    await Promise.all([
+      db.put(this.STORE_NAME, baseEntry),
+      db.put(this.STORE_NAME, versionedEntry),
+    ]);
+  }
+
+  static async getCommunityKeyByVersion(communityId: string, keyVersion: number): Promise<StoredEncryptionKey | undefined> {
+    const db = await StorageService.getDB();
+    const versioned = await db.get(this.STORE_NAME, this.toCommunityVersionedId(communityId, keyVersion));
+    if (versioned) return versioned;
+    const active = await db.get(this.STORE_NAME, communityId);
+    if (active && active.type === 'community' && active.keyVersion === keyVersion) {
+      return active;
+    }
+    return undefined;
+  }
+
+  static async listCommunityKeys(communityId: string): Promise<StoredEncryptionKey[]> {
+    const all = await this.listKeysByType('community');
+    const historyPrefix = `${communityId}${this.COMMUNITY_VERSION_SEP}`;
+    const matches = all.filter((entry) => entry.id === communityId || entry.id.startsWith(historyPrefix));
+    return matches.sort((a, b) => (b.keyVersion || 0) - (a.keyVersion || 0));
   }
 
   /** Retrieve a stored encryption key by id (communityId or roomId) */

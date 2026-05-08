@@ -5,6 +5,7 @@ import config from '@/config';
 import { Community, CommunityService } from '../services/communityService';
 import { GUN_NAMESPACE } from '../services/gunService';
 import { KeyVaultService } from '../services/keyVaultService';
+import { UserService } from '../services/userService';
 import { useChainStore } from './chainStore';
 
 function getGunRelayBaseUrl(): string {
@@ -119,8 +120,9 @@ export const useCommunityStore = defineStore('community', () => {
       let changed = false;
       const next = new Set(joinedCommunities.value);
       for (const key of keys) {
-        if (!next.has(key.id)) {
-          next.add(key.id);
+        const normalizedId = key.id.split('::v')[0];
+        if (!next.has(normalizedId)) {
+          next.add(normalizedId);
           changed = true;
         }
       }
@@ -273,9 +275,10 @@ export const useCommunityStore = defineStore('community', () => {
     rules: string[];
   }) {
     try {
+      const currentUser = await UserService.getCurrentUser();
       const community = await CommunityService.createCommunity({
         ...data,
-        creatorId: 'current-user-id',
+        creatorId: currentUser.id,
       });
 
       const chainStore = useChainStore();
@@ -303,9 +306,10 @@ export const useCommunityStore = defineStore('community', () => {
     rules: string[];
   }, password?: string) {
     try {
+      const currentUser = await UserService.getCurrentUser();
       const result = await CommunityService.createPrivateCommunity({
         ...data,
-        creatorId: 'current-user-id',
+        creatorId: currentUser.id,
       }, password);
 
       const chainStore = useChainStore();

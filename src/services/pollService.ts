@@ -41,6 +41,7 @@ export interface Poll {
   isEncrypted?: boolean;
   encryptedContent?: string;
   authTag?: string;
+  encryptionKeyVersion?: number;
 }
 
 const pollActiveListeners = new Map<string, any>();
@@ -167,6 +168,7 @@ export class PollService {
       isEncrypted: pollData.isEncrypted || false,
       encryptedContent: pollData.encryptedContent || undefined,
       authTag: pollData.authTag || undefined,
+      encryptionKeyVersion: Number(pollData.encryptionKeyVersion) || undefined,
       authorPubkey: pollData.authorPubkey || undefined,
       contentSignature: pollData.contentSignature || undefined,
     };
@@ -861,7 +863,18 @@ export class PollService {
     } catch (err) { console.warn('Failed to sign poll:', err); }
 
     if (poll.communityId) {
-      const storedKey = await KeyVaultService.getKey(poll.communityId);
+      let storedKey = await KeyVaultService.getKey(poll.communityId);
+      const community = await (await import('./communityService')).CommunityService.getCommunity(poll.communityId).catch(() => null);
+      const requiredCommunityKeyVersion = Number(community?.currentKeyVersion) || 1;
+      if (storedKey && (storedKey.keyVersion || 1) < requiredCommunityKeyVersion) {
+        storedKey = await KeyVaultService.getCommunityKeyByVersion(poll.communityId, requiredCommunityKeyVersion);
+        if (!storedKey) {
+          throw new Error('Community key is outdated on this device. Rejoin/sync the community before creating a poll.');
+        }
+      }
+      if (community?.isEncrypted && !storedKey) {
+        throw new Error('No approved community key is available on this device for this encrypted community.');
+      }
       if (storedKey) {
         try {
           const aesKey = await EncryptionService.importKey(storedKey.key);
@@ -869,6 +882,7 @@ export class PollService {
           poll.encryptedContent = await EncryptionService.encrypt(JSON.stringify(encryptableData), aesKey);
           poll.authTag          = await EncryptionService.generateAuthTag(aesKey, poll.id, String(poll.createdAt), poll.authorId);
           poll.isEncrypted      = true;
+          poll.encryptionKeyVersion = storedKey.keyVersion || 1;
           logPollDebug('create', 'Poll encryption completed', { pollId });
         } catch (err) { console.warn('Failed to encrypt poll:', err); }
       } else {
@@ -969,6 +983,7 @@ export class PollService {
       node.get('description').put('');
       node.get('encryptedContent').put(poll.encryptedContent);
       node.get('authTag').put(poll.authTag);
+      node.get('encryptionKeyVersion').put(poll.encryptionKeyVersion || 1);
       node.get('isEncrypted').put(true);
       if (poll.authorPubkey)     node.get('authorPubkey').put(poll.authorPubkey);
       if (poll.contentSignature) node.get('contentSignature').put(poll.contentSignature);
@@ -1567,22 +1582,31 @@ export class PollService {
 
   static async decryptPoll(poll: Poll): Promise<Poll> {
     if (!poll.isEncrypted || !poll.encryptedContent) return poll;
-    const storedKey = await KeyVaultService.getKey(poll.communityId);
-    if (!storedKey) return poll;
-    try {
-      const aesKey   = await EncryptionService.importKey(storedKey.key);
-      if (poll.authTag) {
-        const valid = await EncryptionService.verifyAuthTag(aesKey, poll.authTag, poll.id, String(poll.createdAt), poll.authorId);
-        if (!valid) return poll;
+    const candidateKeys = poll.encryptionKeyVersion
+      ? [
+          await KeyVaultService.getCommunityKeyByVersion(poll.communityId, poll.encryptionKeyVersion),
+          ...(await KeyVaultService.listCommunityKeys(poll.communityId)),
+        ].filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+      : await KeyVaultService.listCommunityKeys(poll.communityId);
+    for (const storedKey of candidateKeys) {
+      try {
+        const aesKey = await EncryptionService.importKey(storedKey.key);
+        if (poll.authTag) {
+          const valid = await EncryptionService.verifyAuthTag(aesKey, poll.authTag, poll.id, String(poll.createdAt), poll.authorId);
+          if (!valid) continue;
+        }
+        const decrypted = JSON.parse(await EncryptionService.decrypt(poll.encryptedContent, aesKey));
+        return {
+          ...poll,
+          question: decrypted.question || poll.question,
+          description: decrypted.description || poll.description,
+          options: decrypted.options || poll.options,
+          authorName: decrypted.authorName || poll.authorName,
+        };
+      } catch {
+        continue;
       }
-      const decrypted = JSON.parse(await EncryptionService.decrypt(poll.encryptedContent, aesKey));
-      return {
-        ...poll,
-        question:    decrypted.question    || poll.question,
-        description: decrypted.description || poll.description,
-        options:     decrypted.options     || poll.options,
-        authorName:  decrypted.authorName  || poll.authorName,
-      };
-    } catch { return poll; }
+    }
+    return poll;
   }
 }

@@ -5,7 +5,14 @@ import { KeyService } from './keyService';
 import { EncryptionService } from './encryptionService';
 import { KeyVaultService } from './keyVaultService';
 import { InviteLinkService } from './inviteLinkService';
-import type { DecryptedCommunityMeta, StoredEncryptionKey } from '../types/encryption';
+import { DeviceKeyService } from './deviceKeyService';
+import { UserService } from './userService';
+import type {
+  CommunityKeyEnvelope,
+  DecryptedCommunityMeta,
+  DeviceApprovalRequest,
+  StoredEncryptionKey,
+} from '../types/encryption';
 
 export interface Community {
   id: string;
@@ -22,6 +29,8 @@ export interface Community {
   isEncrypted?: boolean;
   encryptionHint?: string;
   encryptedMeta?: string;
+  keyRingRequired?: boolean;
+  currentKeyVersion?: number;
 }
 
 export class CommunityService {
@@ -34,6 +43,108 @@ export class CommunityService {
   private static readonly communityDataCache = new Map<string, any>();
   private static readonly liveCallbacks = new Set<(community: Community) => void>();
   private static liveCommunityListener: any = null;
+  private static getDeviceKeyRingNode(communityId: string) {
+    return this.getCommunityNode(communityId).get('keyRing');
+  }
+  private static getDeviceRequestNode(communityId: string) {
+    return this.getCommunityNode(communityId).get('deviceRequests');
+  }
+  private static envelopePayload(payload: {
+    communityId: string;
+    devicePublicKey: string;
+    deviceEncryptionPublicKey: string;
+    encryptedCommunityKey: string;
+    keyVersion: number;
+    approvedBy: string;
+    updatedAt: number;
+  }): string {
+    return JSON.stringify({
+      approvedBy: payload.approvedBy,
+      communityId: payload.communityId,
+      deviceEncryptionPublicKey: payload.deviceEncryptionPublicKey,
+      devicePublicKey: payload.devicePublicKey,
+      encryptedCommunityKey: payload.encryptedCommunityKey,
+      keyVersion: payload.keyVersion,
+      updatedAt: payload.updatedAt,
+    });
+  }
+
+  private static async createSignedEnvelope(params: {
+    communityId: string;
+    devicePublicKey: string;
+    deviceEncryptionPublicKey: string;
+    communityKeyBase64: string;
+    keyVersion: number;
+  }): Promise<CommunityKeyEnvelope> {
+    const [approverIdentity, encryptedCommunityKey] = await Promise.all([
+      KeyService.getKeyPair(),
+      DeviceKeyService.encryptForDevice(params.deviceEncryptionPublicKey, params.communityKeyBase64),
+    ]);
+    const updatedAt = Date.now();
+    const payload = this.envelopePayload({
+      communityId: params.communityId,
+      devicePublicKey: params.devicePublicKey,
+      deviceEncryptionPublicKey: params.deviceEncryptionPublicKey,
+      encryptedCommunityKey,
+      keyVersion: params.keyVersion,
+      approvedBy: approverIdentity.publicKey,
+      updatedAt,
+    });
+    const signature = CryptoService.sign(CryptoService.hash(payload), approverIdentity.privateKey);
+    return {
+      encryptedCommunityKey,
+      deviceEncryptionPublicKey: params.deviceEncryptionPublicKey,
+      approvedBy: approverIdentity.publicKey,
+      signature,
+      updatedAt,
+      keyVersion: params.keyVersion,
+    };
+  }
+
+  private static verifyEnvelope(
+    communityId: string,
+    devicePublicKey: string,
+    envelope: CommunityKeyEnvelope,
+  ): boolean {
+    const payload = this.envelopePayload({
+      communityId,
+      devicePublicKey,
+      deviceEncryptionPublicKey: envelope.deviceEncryptionPublicKey,
+      encryptedCommunityKey: envelope.encryptedCommunityKey,
+      keyVersion: envelope.keyVersion,
+      approvedBy: envelope.approvedBy,
+      updatedAt: envelope.updatedAt,
+    });
+    const hash = CryptoService.hash(payload);
+    return CryptoService.verify(hash, envelope.signature, envelope.approvedBy);
+  }
+
+  private static async createSignedDeviceRequest(
+    userId: string,
+    method: DeviceApprovalRequest['method'],
+  ): Promise<DeviceApprovalRequest> {
+    const [identity, deviceEncryptionPublicKey] = await Promise.all([
+      KeyService.getKeyPair(),
+      DeviceKeyService.getPublicKeyBase64(),
+    ]);
+    const requestedAt = Date.now();
+    const payload = JSON.stringify({
+      deviceEncryptionPublicKey,
+      devicePublicKey: identity.publicKey,
+      method,
+      requestedAt,
+      userId,
+    });
+    const signature = CryptoService.sign(CryptoService.hash(payload), identity.privateKey);
+    return {
+      userId,
+      devicePublicKey: identity.publicKey,
+      deviceEncryptionPublicKey,
+      requestedAt,
+      method,
+      signature,
+    };
+  }
 
   // ─── Create ────────────────────────────────────────────────────────────────
 
@@ -118,7 +229,7 @@ export class CommunityService {
     };
     const encryptedMeta = await EncryptionService.encrypt(JSON.stringify(meta), aesKey);
 
-    const encryptionHint = password ? 'Password-protected' : 'Invite-only';
+    const encryptionHint = password ? 'Password-protected (approval required)' : 'Invite-only (approval required)';
     const gunData: Record<string, any> = {
       id,
       isEncrypted: true,
@@ -131,6 +242,8 @@ export class CommunityService {
       name: '🔒 Private Community',
       displayName: '🔒 Private Community',
       description: 'This community is encrypted. Use an invite link or password to access.',
+      keyRingRequired: true,
+      currentKeyVersion: 1,
     };
 
     try {
@@ -151,15 +264,38 @@ export class CommunityService {
 
     await this.put(this.getCommunityNode(id), gunData);
 
-    const keyBase64 = await EncryptionService.exportKey(aesKey);
-    await KeyVaultService.storeKey({
+    const [keyBase64, creatorIdentity, creatorEncryptionPubKey, creatorUser] = await Promise.all([
+      EncryptionService.exportKey(aesKey),
+      KeyService.getKeyPair(),
+      DeviceKeyService.getPublicKeyBase64(),
+      UserService.getCurrentUser(),
+    ]);
+    const creatorEnvelope = await this.createSignedEnvelope({
+      communityId: id,
+      devicePublicKey: creatorIdentity.publicKey,
+      deviceEncryptionPublicKey: creatorEncryptionPubKey,
+      communityKeyBase64: keyBase64,
+      keyVersion: 1,
+    });
+    await this.put(
+      this.getDeviceKeyRingNode(id).get(creatorIdentity.publicKey),
+      creatorEnvelope,
+    );
+
+    await KeyVaultService.storeCommunityKey({
       id,
       type: 'community',
       key: keyBase64,
       method,
       label: data.displayName,
       joinedAt: Date.now(),
+      keyVersion: 1,
     });
+
+    await this.put(
+      this.getDeviceRequestNode(id).get('owner'),
+      await this.createSignedDeviceRequest(creatorUser.id, method),
+    );
 
     let inviteLink = '';
     if (method === 'invite') {
@@ -182,6 +318,8 @@ export class CommunityService {
       encryptedMeta,
       creatorPubkey: gunData.creatorPubkey,
       creatorSignature: gunData.creatorSignature,
+      keyRingRequired: true,
+      currentKeyVersion: 1,
     };
 
     return { community, inviteLink };
@@ -196,29 +334,30 @@ export class CommunityService {
   static async decryptCommunityMeta(community: Community): Promise<Community | null> {
     if (!community.isEncrypted || !community.encryptedMeta) return community;
 
-    const storedKey = await KeyVaultService.getKey(community.id);
-    if (!storedKey) return null;
-
-    try {
-      const aesKey = await EncryptionService.importKey(storedKey.key);
-      const decrypted: DecryptedCommunityMeta = JSON.parse(
-        await EncryptionService.decrypt(community.encryptedMeta, aesKey)
-      );
-      if (typeof decrypted.name !== 'string' || typeof decrypted.displayName !== 'string'
-          || typeof decrypted.description !== 'string' || !Array.isArray(decrypted.rules)
-          || !decrypted.rules.every((r: unknown) => typeof r === 'string')) {
-        return null;
+    const communityKeys = await KeyVaultService.listCommunityKeys(community.id);
+    for (const storedKey of communityKeys) {
+      try {
+        const aesKey = await EncryptionService.importKey(storedKey.key);
+        const decrypted: DecryptedCommunityMeta = JSON.parse(
+          await EncryptionService.decrypt(community.encryptedMeta, aesKey)
+        );
+        if (typeof decrypted.name !== 'string' || typeof decrypted.displayName !== 'string'
+            || typeof decrypted.description !== 'string' || !Array.isArray(decrypted.rules)
+            || !decrypted.rules.every((r: unknown) => typeof r === 'string')) {
+          continue;
+        }
+        return {
+          ...community,
+          name: decrypted.name,
+          displayName: decrypted.displayName,
+          description: decrypted.description,
+          rules: decrypted.rules,
+        };
+      } catch {
+        continue;
       }
-      return {
-        ...community,
-        name: decrypted.name,
-        displayName: decrypted.displayName,
-        description: decrypted.description,
-        rules: decrypted.rules,
-      };
-    } catch {
-      return null;
     }
+    return null;
   }
 
   /**
@@ -230,16 +369,88 @@ export class CommunityService {
     keyOrPassword: string,
     method: 'invite' | 'password'
   ): Promise<Community> {
+    const [community, currentUser, currentDevice] = await Promise.all([
+      this.getCommunity(communityId),
+      UserService.getCurrentUser(),
+      KeyService.getKeyPair(),
+    ]);
+    if (!community || !community.encryptedMeta) {
+      throw new Error('Community not found or not encrypted');
+    }
+
+    // New key-ring mode: invite/password only bootstraps a request; key delivery requires approval.
+    if (community.keyRingRequired) {
+      const approved = await UserService.isCurrentDeviceApproved(currentUser.id);
+      if (!approved) {
+        await this.put(
+          this.getDeviceRequestNode(communityId).get(currentDevice.publicKey),
+          await this.createSignedDeviceRequest(currentUser.id, method),
+        );
+        throw new Error('This device is not approved yet. An already-approved device must approve it first.');
+      }
+
+      const [entryRaw, hasExistingCommunityKey] = await Promise.all([
+        this.once<any>(this.getDeviceKeyRingNode(communityId).get(currentDevice.publicKey)),
+        KeyVaultService.hasKey(communityId),
+      ]);
+      if (!entryRaw?.encryptedCommunityKey) {
+        await this.put(
+          this.getDeviceRequestNode(communityId).get(currentDevice.publicKey),
+          await this.createSignedDeviceRequest(currentUser.id, method),
+        );
+        throw new Error('Device approval required. Ask an approved device to approve this device for the community.');
+      }
+
+      if (!this.verifyEnvelope(communityId, currentDevice.publicKey, entryRaw as CommunityKeyEnvelope)) {
+        throw new Error('Community key envelope failed signature verification');
+      }
+      const approverPubkey = (entryRaw as CommunityKeyEnvelope).approvedBy;
+      if (approverPubkey !== currentDevice.publicKey) {
+        const approverEnvelope = await this.once<any>(
+          this.getDeviceKeyRingNode(communityId).get(approverPubkey),
+        );
+        if (!approverEnvelope?.encryptedCommunityKey || !this.verifyEnvelope(communityId, approverPubkey, approverEnvelope as CommunityKeyEnvelope)) {
+          throw new Error('Community key envelope signer is not trusted in this community');
+        }
+      }
+
+      const keyBase64 = await DeviceKeyService.decryptForCurrentDevice(entryRaw.encryptedCommunityKey);
+      const aesKey = await EncryptionService.importKey(keyBase64);
+      const decryptedMeta: DecryptedCommunityMeta = JSON.parse(
+        await EncryptionService.decrypt(community.encryptedMeta, aesKey),
+      );
+      const keyVersion = Number(entryRaw.keyVersion) || Number(community.currentKeyVersion) || 1;
+      await KeyVaultService.storeCommunityKey({
+        id: communityId,
+        type: 'community',
+        key: keyBase64,
+        method,
+        label: decryptedMeta.displayName || decryptedMeta.name,
+        joinedAt: Date.now(),
+        keyVersion,
+      });
+
+      if (!hasExistingCommunityKey) {
+        await this.put(
+          this.getCommunityNode(communityId).get('memberCount'),
+          community.memberCount + 1
+        );
+      }
+      return {
+        ...community,
+        name: decryptedMeta.name,
+        displayName: decryptedMeta.displayName,
+        description: decryptedMeta.description,
+        rules: decryptedMeta.rules,
+      };
+    }
+
+    // Backward-compatible legacy mode for communities that have not migrated.
     let aesKey: CryptoKey;
     if (method === 'password') {
       aesKey = await EncryptionService.deriveKeyFromPassword(keyOrPassword.trim(), communityId + 'interpoll-v2');
     } else {
       aesKey = await EncryptionService.importKeyFromBase64Url(keyOrPassword);
-    }
-
-    const community = await this.getCommunity(communityId);
-    if (!community || !community.encryptedMeta) {
-      throw new Error('Community not found or not encrypted');
     }
 
     let decryptedMeta: DecryptedCommunityMeta;
@@ -257,13 +468,14 @@ export class CommunityService {
     // Only store key and increment count if not already a member
     const existingKey = await KeyVaultService.getKey(communityId);
     const keyBase64 = await EncryptionService.exportKey(aesKey);
-    await KeyVaultService.storeKey({
+    await KeyVaultService.storeCommunityKey({
       id: communityId,
       type: 'community',
       key: keyBase64,
       method,
       label: decryptedMeta.displayName || decryptedMeta.name,
       joinedAt: Date.now(),
+      keyVersion: Number(community.currentKeyVersion) || 1,
     });
 
     if (!existingKey) {
@@ -280,6 +492,138 @@ export class CommunityService {
       description: decryptedMeta.description,
       rules: decryptedMeta.rules,
     };
+  }
+
+  static async approveDeviceRequest(
+    communityId: string,
+    targetDevicePublicKey: string,
+  ): Promise<void> {
+    const [community, approverIdentity] = await Promise.all([
+      this.getCommunity(communityId),
+      KeyService.getKeyPair(),
+    ]);
+    if (!community?.isEncrypted) throw new Error('Community not found or not encrypted');
+    const approverEnvelope = await this.once<any>(
+      this.getDeviceKeyRingNode(communityId).get(approverIdentity.publicKey),
+    );
+    if (!approverEnvelope?.encryptedCommunityKey || !this.verifyEnvelope(communityId, approverIdentity.publicKey, approverEnvelope as CommunityKeyEnvelope)) {
+      throw new Error('Current device is not authorized to approve this community request');
+    }
+    const keyVersion = Number(community.currentKeyVersion) || 1;
+    const [request, keyEntry] = await Promise.all([
+      this.once<any>(this.getDeviceRequestNode(communityId).get(targetDevicePublicKey)),
+      KeyVaultService.getCommunityKeyByVersion(communityId, keyVersion),
+    ]);
+    if (!request?.deviceEncryptionPublicKey) {
+      throw new Error('No pending device request found for this public key');
+    }
+    if (request.devicePublicKey !== targetDevicePublicKey) {
+      throw new Error('Device request payload does not match target device public key');
+    }
+    if (typeof request.signature !== 'string' || request.signature.length === 0) {
+      throw new Error('Device request is missing a signature');
+    }
+    const requestPayload = JSON.stringify({
+      deviceEncryptionPublicKey: request.deviceEncryptionPublicKey,
+      devicePublicKey: request.devicePublicKey,
+      method: request.method,
+      requestedAt: request.requestedAt,
+      userId: request.userId,
+    });
+    const requestSigValid = CryptoService.verify(
+      CryptoService.hash(requestPayload),
+      request.signature,
+      request.devicePublicKey,
+    );
+    if (!requestSigValid) {
+      throw new Error('Device request signature verification failed');
+    }
+    if (!keyEntry?.key) {
+      throw new Error('Current community key is not available on this device');
+    }
+
+    await UserService.approveDevice(
+      request.userId,
+      targetDevicePublicKey,
+      request.deviceEncryptionPublicKey,
+    );
+    const envelope = await this.createSignedEnvelope({
+      communityId,
+      devicePublicKey: targetDevicePublicKey,
+      deviceEncryptionPublicKey: request.deviceEncryptionPublicKey,
+      communityKeyBase64: keyEntry.key,
+      keyVersion,
+    });
+    await this.put(this.getDeviceKeyRingNode(communityId).get(targetDevicePublicKey), envelope);
+    await this.put(this.getDeviceRequestNode(communityId).get(targetDevicePublicKey), null);
+  }
+
+  static async removeDeviceAndRotateKey(
+    communityId: string,
+    removedDevicePublicKey: string,
+  ): Promise<void> {
+    const [community, currentDevice] = await Promise.all([
+      this.getCommunity(communityId),
+      KeyService.getKeyPair(),
+    ]);
+    if (!community?.isEncrypted) throw new Error('Community not found or not encrypted');
+    const callerEnvelope = await this.once<any>(
+      this.getDeviceKeyRingNode(communityId).get(currentDevice.publicKey),
+    );
+    if (!callerEnvelope?.encryptedCommunityKey || !this.verifyEnvelope(communityId, currentDevice.publicKey, callerEnvelope as CommunityKeyEnvelope)) {
+      throw new Error('Current device is not authorized to rotate this community key');
+    }
+    const nextKeyVersion = (Number(community.currentKeyVersion) || 1) + 1;
+    const keyRingRaw = await this.once<Record<string, CommunityKeyEnvelope | null>>(this.getDeviceKeyRingNode(communityId));
+    if (!keyRingRaw) throw new Error('Community key ring not found');
+
+    const remainingEntries = Object.entries(keyRingRaw)
+      .filter(([pub, value]) => (
+        pub !== removedDevicePublicKey
+        && pub !== '_'
+        && value
+        && typeof value === 'object'
+        && this.verifyEnvelope(communityId, pub, value as CommunityKeyEnvelope)
+      ));
+    if (remainingEntries.length === 0) {
+      throw new Error('Cannot remove the last approved device from the community key ring');
+    }
+
+    const newAesKey = await EncryptionService.generateKey();
+    const newKeyBase64 = await EncryptionService.exportKey(newAesKey);
+    const oldKeyEntry = await KeyVaultService.getCommunityKeyByVersion(communityId, nextKeyVersion - 1);
+    if (!oldKeyEntry?.key || !community.encryptedMeta) {
+      throw new Error('Missing previous community key to re-encrypt metadata during rotation');
+    }
+    const oldAesKey = await EncryptionService.importKey(oldKeyEntry.key);
+    const decryptedMetaRaw = await EncryptionService.decrypt(community.encryptedMeta, oldAesKey);
+    const reEncryptedMeta = await EncryptionService.encrypt(decryptedMetaRaw, newAesKey);
+
+    const writePromises: Array<Promise<void>> = [];
+    for (const [devicePublicKey, value] of remainingEntries) {
+      const envelope = await this.createSignedEnvelope({
+        communityId,
+        devicePublicKey,
+        deviceEncryptionPublicKey: value!.deviceEncryptionPublicKey,
+        communityKeyBase64: newKeyBase64,
+        keyVersion: nextKeyVersion,
+      });
+      writePromises.push(this.put(this.getDeviceKeyRingNode(communityId).get(devicePublicKey), envelope));
+    }
+    writePromises.push(this.put(this.getDeviceKeyRingNode(communityId).get(removedDevicePublicKey), null));
+    writePromises.push(this.put(this.getCommunityNode(communityId).get('currentKeyVersion'), nextKeyVersion));
+    writePromises.push(this.put(this.getCommunityNode(communityId).get('encryptedMeta'), reEncryptedMeta));
+    await Promise.all(writePromises);
+
+    await KeyVaultService.storeCommunityKey({
+      id: communityId,
+      type: 'community',
+      key: newKeyBase64,
+      method: 'invite',
+      label: community.displayName || community.name || communityId,
+      joinedAt: Date.now(),
+      keyVersion: nextKeyVersion,
+    });
   }
 
   // ─── Live subscription (replaces subscribeToCommunities) ──────────────────
@@ -507,6 +851,8 @@ export class CommunityService {
       isEncrypted: data.isEncrypted || false,
       encryptionHint: data.encryptionHint || undefined,
       encryptedMeta: data.encryptedMeta || undefined,
+      keyRingRequired: Boolean(data.keyRingRequired),
+      currentKeyVersion: Number(data.currentKeyVersion) || 1,
     };
   }
 

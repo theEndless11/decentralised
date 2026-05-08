@@ -32,7 +32,7 @@ End-to-end encryption types for communities, chat rooms, posts, and server-wide 
 | Type | Notes |
 |---|---|
 | `EncryptedBlob` | String alias — base64-encoded AES-256-GCM payload with IV prepended to ciphertext. |
-| `StoredEncryptionKey` | Persisted in IndexedDB `encryption-keys` store. Fields: `id`, `type` (`'community' \| 'chatroom' \| 'server'`), `key` (base64 AES-256), `method` (`'invite' \| 'password'`), `label`, `joinedAt`. |
+| `StoredEncryptionKey` | Persisted in IndexedDB `encryption-keys` store. Fields: `id`, `type` (`'community' \| 'chatroom' \| 'server'`), `key` (base64 AES-256), `method` (`'invite' \| 'password'`), `label`, `joinedAt`, optional `keyVersion` for rotated community keys. |
 | `InviteLinkData` | Parsed from an invite link URL fragment: `id`, `type`, `key` (base64url-encoded). |
 | `EncryptedCommunityData` | Community with `isEncrypted: true`. Contains `encryptedMeta` (AES-GCM blob of name/description/rules), `encryptionHint`, `creatorId`, `memberCount`. |
 | `DecryptedCommunityMeta` | Plaintext community metadata inside `encryptedMeta`: `name`, `displayName`, `description`, `rules[]`. |
@@ -43,6 +43,9 @@ End-to-end encryption types for communities, chat rooms, posts, and server-wide 
 | `ContentSignature` | Anti-sabotage fields for posts/comments: `authorPubkey` (64 hex), `contentSignature` (128 hex Schnorr). |
 | `EncryptedPostData` | Encrypted post in GunDB: `encryptedContent` blob + `authTag`, scoped to `communityId`. |
 | `ServerEncryptionConfig` | Server-wide encryption settings: `encryptAll`, optional `serverPassword` (PBKDF2 input), `requireInviteToJoin`. |
+| `DeviceApprovalRecord` | Signed approved-device record for a user profile: identity pubkey + device encryption pubkey + approver + signature + status. |
+| `DeviceApprovalRequest` | Pending request for approving a new device in a user/community flow. Includes user id, device keys, method, and timestamp. |
+| `CommunityKeyEnvelope` | Per-device wrapped community key record: RSA-OAEP-encrypted key + approver signature + keyVersion metadata. |
 
 ## `supabase.ts`
 

@@ -45,6 +45,7 @@ Key computed: `polls`, `sortedPolls`
 - Joined state is also synced from stored community encryption keys, so invite/password-joined private communities behave like normal joined communities after refresh.
 - Encrypted communities are decrypted before surfacing when the user already has access, so joined private communities show their real names/descriptions instead of the public placeholder metadata.
 - `joinCommunity()` is optimistic locally for normal joins, but first checks existing key-vault access and short-circuits without incrementing member counts when the user already holds the private-community key.
+- Community creation now resolves `creatorId` from `UserService.getCurrentUser()` (device-backed profile) instead of a placeholder constant.
 
 ## `postStore.ts` — `usePostStore`
 
