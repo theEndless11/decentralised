@@ -129,7 +129,7 @@ Relay URLs can also be changed at runtime from the Settings page (saved in `loca
 | Variable | Default | Purpose |
 |---|---|---|
 | `FRONTEND_ORIGIN` | `http://localhost:5173` | CORS origin |
-| `SERVER_ORIGIN` | `http://localhost:8080` | Public relay origin (must be HTTPS in production) |
+| `SERVER_ORIGIN` | `http://localhost:8080` | Public relay origin used for OAuth callback URIs (required and must be HTTPS in production) |
 | `JWT_SECRET` | random per process | HMAC secret for relay session JWTs |
 | `VOTE_RESERVATION_SECRET` | random per process | HMAC secret for vote reservation tokens |
 | `GOOGLE_CLIENT_ID` | — | Google OAuth app ID |
