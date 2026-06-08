@@ -2,6 +2,11 @@
 
 > **"101% Uptime!!!"** — *A voice for everyone, with records that are harder to erase.*
 
+> ### ▶️ [**Live demo**](https://estebanrfp.github.io/interpoll-genosdb/)
+> Try it now: **https://estebanrfp.github.io/interpoll-genosdb/** — a running, serverless
+> build (GitHub Pages). Open it in two browsers to watch polls and votes sync peer-to-peer,
+> with no backend in between.
+
 <img width="1918" height="966" alt="InterPoll screenshot" src="https://github.com/user-attachments/assets/31717176-eb42-43b2-8200-8da9cf022550" />
 
 > ### 🛰️ A GenosDB build of InterPoll — shared as a friendly contribution
