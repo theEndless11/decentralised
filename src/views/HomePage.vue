@@ -87,6 +87,15 @@
             <ion-icon :icon="shieldOutline"></ion-icon>
             <span>Resilience Center</span>
           </button>
+
+          <button
+            v-if="auth.isLoggedIn"
+            class="side-nav-item side-nav-util side-nav-logout"
+            @click="handleLogout"
+          >
+            <ion-icon :icon="logOutOutline"></ion-icon>
+            <span>Log out</span>
+          </button>
         </nav>
 
         <!-- ── MAIN CONTENT ────────────────────────────── -->
@@ -428,9 +437,10 @@ import {
   earthOutline, peopleOutline, home, homeOutline, documentTextOutline,
   chevronForwardOutline, people, addCircle, statsChartOutline,
   checkmarkCircleOutline, searchOutline, chatbubble, chatbubbleOutline,
-  shieldOutline
+  shieldOutline, logOutOutline
 } from 'ionicons/icons';
 import { useRouter } from 'vue-router';
+import { useAuthStore } from '../stores/authStore';
 import { useChainStore } from '../stores/chainStore';
 import { useCommunityStore } from '../stores/communityStore';
 import { usePostStore } from '../stores/postStore';
@@ -446,7 +456,19 @@ import ChatService from '../services/chatService';
 import config from '../config';
 
 const router = useRouter();
+const auth = useAuthStore();
 const chainStore = useChainStore();
+
+/**
+ * Log out the active Security Manager identity. Clears local signing so the
+ * OnboardingModal (gated on `!auth.isLoggedIn`) reappears, letting the user
+ * switch or recover an identity without clearing browser storage by hand.
+ */
+async function handleLogout() {
+  if (!confirm('Log out of this identity? You will need your recovery phrase or passkey to sign in again.')) return;
+  await auth.logout();
+  activeTab.value = 'home';
+}
 const communityStore = useCommunityStore();
 const postStore = usePostStore();
 const pollStore = usePollStore();
@@ -1690,6 +1712,15 @@ ion-header.header-hidden {
   }
 
   .chat-tab { max-width: 700px; margin: 0 auto; }
+}
+
+.side-nav-logout {
+  margin-top: 4px;
+  color: var(--app-danger);
+}
+.side-nav-logout:hover {
+  background: rgba(var(--app-danger-rgb), 0.1);
+  color: var(--app-danger);
 }
 
 @media (min-width: 1024px) {
