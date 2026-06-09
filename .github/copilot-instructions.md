@@ -31,10 +31,11 @@ pnpm test -- -t "<test name>"
 
 ## High-level architecture
 
-- **One database.** `gdbServices.ts` exports `db = await gdb('interpoll', { rtc: true, sm: { superAdmins } })`. It provides:
+- **One database.** `gdbServices.ts` exports `db = await gdb('interpoll', { rtc: true, sm: { superAdmins, customRoles } })`. It provides:
   - **Identity & signing** via the Security Manager (`db.sm`): WebAuthn passkey or BIP39 mnemonic; every `db.put` is signed automatically and verified by peers.
   - **Storage** in an OPFS-backed Web Worker (IndexedDB fallback), with cross-tab sync via BroadcastChannel — all built in.
   - **P2P sync** via GenosRTC (WebRTC) using decentralized Nostr relays for signaling only.
+  - **Open RBAC:** InterPoll is a public platform, so `sm.customRoles` grants the base `guest` role `write`/`link` — anyone posts/votes immediately, while every op is still signed + peer-verified (authenticity enforced, only authorization opened).
 - **Everything is a signed node**, read reactively with `db.map({ query }, cb)`. Vote-style data (`vote`, `postVote`, `commentVote`, `membership`) is one signed node per identity; **counts are derived, never mutated**, so there are no last-write-wins races.
 - **Ordering / tamper-evidence** comes from the Hybrid Logical Clock + signatures. The integrity "chain" is just signed `chainAction` nodes (see `chainStore`).
 - **Encryption**: private communities, group chat rooms and DMs use AES-256-GCM (`EncryptionService` + `KeyVaultService`); only the data layer changes, content stays encrypted in the browser.
