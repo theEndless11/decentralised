@@ -71,18 +71,18 @@ On first use you generate an identity that lives only on your device, protected 
 Polls, votes, posts, comments, communities and profiles are stored as nodes in a local graph, persisted to your browser's high-performance OPFS storage. Each vote is its own signed node, so concurrent votes never overwrite each other — tallies are derived, not mutated.
 
 **3. The mesh (the sync)**
-GenosDB connects peers directly over WebRTC, using decentralised Nostr relays only for discovery (signaling) — never for your data. Changes propagate peer-to-peer in real time, and across your own browser tabs instantly. At scale, an optional Cellular Mesh keeps large communities fast by reducing connections from O(N²) to O(N).
+GenosDB connects peers directly over WebRTC, using decentralised Nostr relays only for discovery (signaling) — never for your data. Changes propagate peer-to-peer in real time, and across your own browser tabs instantly. At scale, an optional cellular-mesh mode (**Cells**) keeps large communities fast by cutting the number of peer connections by orders of magnitude versus a full mesh (the docs cite roughly 100×–1000× fewer for large networks).
 
 > **In short:** your polls, posts, comments and vote history exist on your device and on your peers' devices at once. Erasing them would mean erasing every copy simultaneously — sooner or later, a peer with a copy reconnects and reseeds the network.
 
 ```mermaid
 graph TD
-    A[Your Browser] -->|signs every action| B[Security Manager — your key]
-    A -->|stores nodes| C[GenosDB graph — OPFS]
+    A[Your Browser + GenosDB] -->|signs every action| B[Security Manager — your key]
+    A -->|stores nodes| C[Graph store · OPFS]
     A -->|reactive queries| D[db.map subscriptions]
     C -->|P2P delta sync over WebRTC| E[Other Participants]
     C -->|cross-tab| F[BroadcastChannel]
-    G[Nostr relays] -. signaling only .-> A
+    G[Nostr relays] -. signaling / peer discovery only .-> A
 ```
 
 ---
@@ -118,7 +118,7 @@ pnpm preview   # Serve the built dist/ folder locally
 pnpm test      # Run the Vitest test suite
 ```
 
-> **Bundler note:** GenosDB lazy-loads optional modules via `import(new URL(...))`, so the Vite config sets `optimizeDeps.exclude: ['genosdb']` and `build.target: 'es2022'` (for top-level await). No other configuration is required.
+> **Bundler note:** GenosDB ships a self-contained `dist/` and resolves its own modules (Security Manager, GenosRTC, …) at runtime via `import(new URL('./*.min.js', import.meta.url))`. Rather than bundling it, the app loads it **intact from a single served folder** (`<base>/genosdb/`): a small `genosdb-static` Vite plugin serves that folder from `node_modules` in dev and copies it verbatim into the build. `build.target` is `es2022` (for GenosDB's top-level `await`).
 
 ---
 

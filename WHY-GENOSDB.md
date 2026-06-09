@@ -45,7 +45,7 @@ Most of the 40 services exist to build, by hand, things GenosDB ships built-in:
 | `chainService` · `integrityService` · `powService` | **Hybrid Logical Clock** — causal ordering + deterministic, signed, tamper-evident history |
 | RBAC / roles / invites by hand | **Security Manager RBAC** — roles, permissions, expirations |
 | `relayManager` · `relayHealthService` · 3 relay servers · `ws` | **GenosRTC** — decentralized Nostr signaling, no servers to run |
-| `webrtcService` · `simple-peer` · `libp2p-webrtc-star` | **GenosRTC** + **Cellular Mesh** — O(N) scaling, zero infrastructure |
+| `webrtcService` · `simple-peer` · `libp2p-webrtc-star` | **GenosRTC** + **Cells** (cellular mesh) — orders-of-magnitude fewer connections at scale, zero infrastructure |
 | `storageManager` · `storageService` · `idb` · `ipfsService` · `pinningService` | **OPFS** persistence in a dedicated Web Worker |
 | `snapshotService` · `snapshotSyncService` | **Hybrid Delta Protocol** — delta updates + full-state fallback |
 | `searchService` (relay REST index) · `auditService` (OAuth backend) | local reactive `db.map` queries · SM signature as authorization |
@@ -98,8 +98,9 @@ This isn't only about deleting code — the approach we're sharing makes the app
   with cross-tab consistency for free — no warmup, no fallback database.
 - **Zero operations.** No relay servers, no OAuth backend, no SQL fallback, no
   nginx/PM2/Tor to run, monitor, secure or pay for. The app *is* the network.
-- **Scales by design.** The optional Cellular Mesh keeps large communities at O(N)
-  connections instead of O(N²) — without changing a line of app code.
+- **Scales by design.** The optional cellular mesh (**Cells**) keeps large communities
+  fast by cutting peer connections by orders of magnitude vs a full mesh (the docs cite
+  roughly 100×–1000× fewer for large networks) — without changing a line of app code.
 - **Half the codebase to maintain.** ~46k → ~23k lines, 40 → 21 services. Less
   surface for bugs, faster onboarding for new contributors.
 - **One dependency, zero transitive deps.** A smaller supply-chain and attack
@@ -153,7 +154,7 @@ ignore it, or ask me anything.
 
 - GenosDB: https://github.com/estebanrfp/gdb · https://www.npmjs.com/package/genosdb
 - Docs: https://genosdb.com
-- Cellular Mesh (the O(N) scaling): https://dev.to/estebanrfp/genosdb-cellular-mesh-solving-p2p-network-scalability-4jei
+- Cellular Mesh (P2P network scalability): https://dev.to/estebanrfp/genosdb-cellular-mesh-solving-p2p-network-scalability-4jei
 
 ---
 
@@ -294,10 +295,12 @@ We mention them only to show the model is safer, not just smaller:
 
 The migrated app builds with Vite and runs live on GenosDB:
 
-- **Bundler:** Vite, per the official GenosDB guidance — `optimizeDeps: { exclude:
-  ['genosdb'] }` (GenosDB lazy-loads sibling modules via `import(new URL(...))`)
-  and build `target: 'es2022'` (top-level await for the `gdb()` init). No other
-  config needed. `npm install genosdb` adds **zero transitive dependencies**.
+- **Bundler:** Vite. GenosDB ships a self-contained `dist/` and resolves its own
+  modules at runtime via `import(new URL('./*.min.js', import.meta.url))`, so rather
+  than bundling it the app loads it **intact from one served folder** (`<base>/genosdb/`)
+  via a small `genosdb-static` plugin (serves it from `node_modules` in dev, copies it
+  into the build); build `target: 'es2022'` (top-level await for the `gdb()` init).
+  `npm install genosdb` adds **zero transitive dependencies**.
 - **Onboarding:** a minimalist identity gate (`OnboardingModal.vue`) backed by the
   Security Manager, following the SM UX best practices (state-callback as single
   source of truth, always-available mnemonic login, read-only phrase + save

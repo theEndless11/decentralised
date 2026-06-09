@@ -46,8 +46,12 @@ pnpm build
 pnpm test      # Vitest
 ```
 
-GenosDB lazy-loads modules via `import(new URL(...))`, so `vite.config.ts` sets
-`optimizeDeps.exclude: ['genosdb']` and `build.target: 'es2022'`.
+GenosDB ships a self-contained `dist/` and resolves its own modules at runtime via
+`import(new URL('./*.min.js', import.meta.url))`. Rather than bundling it, the app
+loads it **intact from a single served folder** (`<base>/genosdb/`): the
+`genosdb-static` plugin in `vite.config.ts` serves that folder from `node_modules` in
+dev and copies it verbatim into the build. `build.target` is `es2022` (GenosDB's
+top-level `await`).
 
 ---
 
@@ -70,7 +74,7 @@ GenosDB lazy-loads modules via `import(new URL(...))`, so `vite.config.ts` sets
 - [GenosRTC API Reference](https://github.com/estebanrfp/gdb/blob/main/docs/genosrtc-api-reference.md)
 - [GenosRTC Architecture](https://github.com/estebanrfp/gdb/blob/main/docs/genosrtc-architecture.md)
 - [GenosRTC Guide](https://github.com/estebanrfp/gdb/blob/main/docs/genosrtc-guide.md)
-- [Cellular Mesh (O(N) scaling)](https://github.com/estebanrfp/gdb/blob/main/docs/genosrtc-cells.md)
+- [Cells — cellular mesh for large-network scaling](https://github.com/estebanrfp/gdb/blob/main/docs/genosrtc-cells.md)
 
 ### Security Manager
 - [SM API Reference (RBAC, WebAuthn/mnemonic, signing)](https://github.com/estebanrfp/gdb/blob/main/docs/sm-api-reference.md)
