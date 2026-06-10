@@ -38,48 +38,17 @@ function spaRouteFallbackPlugin() {
   };
 }
 
-/**
- * Serve GenosDB's self-contained `dist/` intact from a single location
- * (`<base>/genosdb/`) instead of bundling it. GenosDB resolves its own plugins
- * at runtime via `new URL('./*.min.js', import.meta.url)`, so all of them must
- * live together in one folder — bundling would split + hash them and break that
- * relative resolution. Dev serves them from node_modules; build copies the whole
- * folder verbatim into the output. Matches the app's dynamic import in
- * `src/services/gdbServices.ts`.
- */
-function genosdbStaticPlugin() {
-  const distDir = path.resolve(__dirname, 'node_modules/genosdb/dist');
-  return {
-    name: 'genosdb-static',
-    configureServer(server: any) {
-      server.middlewares.use(async (req: any, res: any, next: any) => {
-        const match = (req.url?.split('?')[0] ?? '').match(/\/genosdb\/(.+\.js)$/);
-        if (!match) return next();
-        try {
-          const file = await fs.readFile(path.join(distDir, match[1]));
-          res.setHeader('Content-Type', 'application/javascript');
-          res.end(file);
-        } catch {
-          next();
-        }
-      });
-    },
-    async closeBundle() {
-      const outDir = path.resolve(__dirname, 'dist/genosdb');
-      await fs.mkdir(outDir, { recursive: true });
-      const files = (await fs.readdir(distDir)).filter((f) => f.endsWith('.js'));
-      await Promise.all(
-        files.map((f) => fs.copyFile(path.join(distDir, f), path.join(outDir, f)))
-      );
-    },
-  };
-}
-
+// GenosDB ships a self-contained dist/ and resolves its own modules at runtime via
+// new URL('./*.min.js', import.meta.url), so it must be served intact from one folder
+// rather than bundled. `scripts/copy-genosdb.mjs` (run by the dev/build npm scripts)
+// copies that folder into public/genosdb, which Vite serves natively in dev and copies
+// into the build output — no custom plugin needed. The app loads it via a dynamic
+// import of `${import.meta.env.BASE_URL}genosdb/index.js` (see gdbServices.ts).
 export default defineConfig({
   // GitHub Pages serves project sites under /<repo>/. Build with GH_PAGES=1 to
   // emit that base; local dev/preview stays at root.
   base: process.env.GH_PAGES === '1' ? '/interpoll-genosdb/' : '/',
-  plugins: [vue(), spaRouteFallbackPlugin(), genosdbStaticPlugin()],
+  plugins: [vue(), spaRouteFallbackPlugin()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

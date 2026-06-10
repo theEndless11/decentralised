@@ -39,3 +39,6 @@ src/services/copilot-services.md
 
 # Browser automation test artifacts
 .playwright-cli/
+
+# Generated: GenosDB dist copied for Vite to serve intact (see scripts/copy-genosdb.mjs)
+public/genosdb/
