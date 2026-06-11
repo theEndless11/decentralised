@@ -15,6 +15,8 @@
     </ion-header>
 
     <ion-content>
+      <div class="page-shell profile-grid">
+      <div class="profile-side">
       <!-- Profile Header -->
       <div class="profile-header">
         <div class="avatar-container" @click="selectAvatar">
@@ -65,7 +67,9 @@
         style="display: none"
         @change="handleAvatarSelect"
       />
+      </div>
 
+      <div class="profile-main">
       <div class="divider"></div>
 
       <!-- Edit Profile -->
@@ -181,16 +185,45 @@
           </div>
         </div>
       </div>
-
+      </div>
+      </div>
     </ion-content>
   </ion-page>
 </template>
 
 <style scoped>
 /* ── Profile Header ───────────────────────────────── */
+/* Identity beside the edit sections on wide screens — their cards, better
+   distributed. Collapses back to a single column on small screens. */
+.profile-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.profile-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .profile-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .profile-header {
   text-align: center;
-  padding: 28px 24px 20px;
+  padding: 28px 24px 24px;
+  background:
+    linear-gradient(180deg, var(--app-surface-tint-top), var(--app-surface-tint-bottom)),
+    var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-lg);
+  box-shadow: var(--app-shadow-md), var(--app-shadow-inset);
 }
 
 .avatar-container {
@@ -324,16 +357,20 @@
 }
 
 /* ── Divider ──────────────────────────────────────── */
+/* Dividers are redundant now that each block is a self-contained panel. */
 .divider {
-  height: 8px;
-  background: rgba(var(--ion-text-color-rgb), 0.04);
-  border-top: 1px solid rgba(var(--ion-text-color-rgb), 0.07);
-  border-bottom: 1px solid rgba(var(--ion-text-color-rgb), 0.07);
+  display: none;
 }
 
 /* ── Sections ─────────────────────────────────────── */
 .section {
-  padding: 16px 0;
+  padding: 20px;
+  background:
+    linear-gradient(180deg, var(--app-surface-tint-top), var(--app-surface-tint-bottom)),
+    var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-lg);
+  box-shadow: var(--app-shadow-md), var(--app-shadow-inset);
 }
 
 .section-title {
@@ -490,11 +527,13 @@ async function handleAvatarSelect(event: Event) {
 
 async function loadProfile() {
   try {
-    userProfile.value = await UserService.getCurrentUser(true);
-    displayName.value = userProfile.value.displayName || userProfile.value.username;
-    customUsername.value = userProfile.value.customUsername || '';
-    bio.value = userProfile.value.bio || '';
-    showRealName.value = userProfile.value.showRealName || false;
+    const profile = await UserService.getCurrentUser(true);
+    userProfile.value = profile;
+    if (!profile) return; // No active identity yet — onboarding gate handles sign-in.
+    displayName.value = profile.displayName || profile.username;
+    customUsername.value = profile.customUsername || '';
+    bio.value = profile.bio || '';
+    showRealName.value = profile.showRealName || false;
     deviceId.value = await VoteTrackerService.getDeviceId();
   } catch (error) {
     console.error('Error loading profile:', error);

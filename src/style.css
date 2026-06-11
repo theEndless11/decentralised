@@ -158,35 +158,41 @@
 html.dark,
 body.dark {
   color-scheme: dark;
-  --app-bg-deep: #000000;
-  --app-bg-base: #000000;
-  --app-bg-elevated: #000000;
-  --app-surface: #000000;
-  --app-surface-strong: #000000;
-  --app-surface-hover: #000000;
-  --app-border: rgba(255, 255, 255, 0.08);
-  --app-border-strong: rgba(255, 255, 255, 0.14);
-  --app-text: #f5f5f6;
-  --app-text-muted: #70757f;
-  --app-text-subtle: rgba(255, 255, 255, 0.44);
-  --app-grid-color: rgba(255, 255, 255, 0);
-  --app-noise-opacity: 0;
-  --app-ambient-spot-1: rgba(94, 106, 210, 0);
-  --app-ambient-spot-2: rgba(140, 92, 246, 0);
-  --app-ambient-spot-3: rgba(99, 102, 241, 0);
-  --app-ambient-spot-4: rgba(94, 106, 210, 0);
-  --app-surface-tint-top: rgba(255, 255, 255, 0);
-  --app-surface-tint-bottom: rgba(255, 255, 255, 0);
-  --app-surface-tint-top-hover: rgba(255, 255, 255, 0);
-  --app-surface-tint-bottom-hover: rgba(255, 255, 255, 0);
-  --app-pill-surface: #000000;
-  --app-item-surface: #000000;
-  --app-search-surface: #000000;
+  /* Dark mode rebuilt with a real elevation ramp — it was all #000000, so the
+     page, cards and hover states were indistinguishable. Each surface is now a
+     quiet step lighter over a near-black indigo-cast base, preserving InterPoll's
+     brand world while restoring the hierarchy the design language relies on. */
+  --app-bg-deep: #06070d;
+  --app-bg-base: #0a0b12;
+  --app-bg-elevated: #0e1019;
+  --app-surface: #14161f;
+  --app-surface-strong: #1a1d27;
+  --app-surface-hover: #20232e;
+  --app-border: rgba(255, 255, 255, 0.10);
+  --app-border-strong: rgba(255, 255, 255, 0.17);
+  --app-text: #f2f3f5;
+  --app-text-muted: #9aa1ad;
+  --app-text-subtle: rgba(255, 255, 255, 0.56);
+  --app-grid-color: rgba(255, 255, 255, 0.02);
+  --app-noise-opacity: 0.012;
+  --app-ambient-spot-1: rgba(94, 106, 210, 0.10);
+  --app-ambient-spot-2: rgba(140, 92, 246, 0.06);
+  --app-ambient-spot-3: rgba(99, 102, 241, 0.05);
+  --app-ambient-spot-4: rgba(94, 106, 210, 0.05);
+  --app-surface-tint-top: rgba(255, 255, 255, 0.04);
+  --app-surface-tint-bottom: rgba(255, 255, 255, 0.01);
+  --app-surface-tint-top-hover: rgba(255, 255, 255, 0.06);
+  --app-surface-tint-bottom-hover: rgba(255, 255, 255, 0.02);
+  --app-pill-surface: rgba(255, 255, 255, 0.04);
+  --app-item-surface: rgba(255, 255, 255, 0.03);
+  --app-search-surface: rgba(255, 255, 255, 0.05);
   --app-heading-start: #ffffff;
-  --app-heading-end: rgba(255, 255, 255, 0.58);
-  --app-shadow-sm: 0 0 0 1px rgba(255, 255, 255, 0.04);
-  --app-shadow-md: 0 0 0 1px rgba(255, 255, 255, 0.05);
-  --app-shadow-lg: 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --app-heading-end: rgba(255, 255, 255, 0.64);
+  /* Real depth on dark: deep black shadows (light-mode shadows were invisible
+     here) plus a faint indigo glow that ties back to the brand accent. */
+  --app-shadow-sm: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 8px 24px rgba(0, 0, 0, 0.45);
+  --app-shadow-md: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 16px 40px rgba(0, 0, 0, 0.55), 0 0 60px rgba(94, 106, 210, 0.06);
+  --app-shadow-lg: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 24px 56px rgba(0, 0, 0, 0.65), 0 0 80px rgba(94, 106, 210, 0.08);
   --app-shadow-inset: inset 0 0 0 rgba(255, 255, 255, 0);
   --glass-blur: 0px;
   --glass-saturation: 1;
@@ -197,10 +203,10 @@ body.dark {
   --glass-border-top: rgba(255, 255, 255, 0.04);
   --glass-border-bottom: rgba(255, 255, 255, 0.04);
   --ion-background-color-rgb: 0, 0, 0;
-  --ion-item-background: #000000;
+  --ion-item-background: rgba(255, 255, 255, 0.02);
   --ion-text-color-rgb: 245, 245, 246;
-  --ion-toolbar-background: #000000;
-  --ion-tab-bar-background: #000000;
+  --ion-toolbar-background: rgba(10, 11, 18, 0.82);
+  --ion-tab-bar-background: #0e1019;
   --ion-color-step-50: #050505;
   --ion-color-step-100: #0a0a0a;
   --ion-color-step-150: #111111;
@@ -320,6 +326,61 @@ p {
   width: min(1320px, calc(100% - 32px));
   margin: 0 auto;
   padding: 24px 0 120px;
+}
+
+/* Shared shell for the standalone utility pages (Search, Profile, Settings,
+   Chain Explorer). They previously dropped content straight into <ion-content>,
+   so it floated edge-to-edge on the ambient background and felt unfinished.
+   This gives them the Home layout's centered, contained column; `.page-panel`
+   reuses the surface-card look so content reads as panels, not loose elements. */
+.page-shell {
+  width: min(1140px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 24px 0 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Variant for the create/claim flows — slightly tighter than content pages. */
+.page-shell--form {
+  width: min(1080px, calc(100% - 32px));
+}
+
+/* Two-column form layout: essentials lead on the left, secondary panels sit
+   beside them so wide screens are used instead of one tall stack. Collapses
+   to a single column on small screens. */
+.form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.form-grid__side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-grid__full {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 900px) {
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.page-panel {
+  background:
+    linear-gradient(180deg, var(--app-surface-tint-top), var(--app-surface-tint-bottom)),
+    var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-lg);
+  box-shadow: var(--app-shadow-md), var(--app-shadow-inset);
+  padding: 20px;
 }
 
 .surface-card,

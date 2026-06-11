@@ -9,8 +9,9 @@
       </ion-toolbar>
     </ion-header>
 
-    <ion-content class="ion-padding">
-      <ion-card>
+    <ion-content>
+      <div class="page-shell">
+        <ion-card>
         <ion-card-header>
           <ion-card-title>Blockchain Blocks</ion-card-title>
           <ion-card-subtitle>
@@ -19,7 +20,13 @@
         </ion-card-header>
 
         <ion-card-content>
-          <div class="blocks-list">
+          <div v-if="!chainStore.blocks.length" class="chain-empty">
+            <p class="chain-empty-title">No blocks yet</p>
+            <p class="chain-empty-sub">
+              Your signed actions — votes, posts and receipts — appear here as they're recorded.
+            </p>
+          </div>
+          <div v-else class="blocks-list">
             <div
               v-for="block in visibleBlocks"
               :key="block.index"
@@ -111,6 +118,7 @@
           </div>
         </ion-card-content>
       </ion-card>
+      </div>
     </ion-content>
   </ion-page>
 </template>
@@ -218,10 +226,30 @@ const actionLabel = (actionType: string) => {
 </script>
 
 <style scoped>
+.chain-empty {
+  text-align: center;
+  padding: 32px 16px 24px;
+}
+
+.chain-empty-title {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: var(--app-text);
+}
+
+.chain-empty-sub {
+  margin: 0 auto;
+  max-width: 320px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--app-text-muted);
+}
+
 .blocks-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
   gap: 12px;
+  align-items: start;
 }
 
 .block-item {

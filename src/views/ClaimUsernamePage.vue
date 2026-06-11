@@ -9,7 +9,8 @@
       </ion-toolbar>
     </ion-header>
 
-    <ion-content class="ion-padding">
+    <ion-content>
+      <div class="page-shell page-shell--form">
 
       <!-- ── Step 1: Choose username ── -->
       <section class="step" v-if="step === 'input'">
@@ -186,6 +187,7 @@
         <ion-button expand="block" @click="$router.back()">Done</ion-button>
       </section>
 
+      </div>
     </ion-content>
 
     <!-- Trust info alert -->
@@ -238,7 +240,7 @@ const customIssuerContact = ref('viktor@endless.sbs');
 const addingCustomIssuer = ref(false);
 const customIssuerError = ref('');
 
-// Pre-built trust record for the done-screen badge preview (no GunDB roundtrip needed)
+// Pre-built trust record for the done-screen badge preview (no GenosDB roundtrip needed)
 const previewTrust = computed<VerifiedUsername>(() => ({
   username: username.value,
   level: claimedVerified.value ? 'verified' : 'none',

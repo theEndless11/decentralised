@@ -12,7 +12,7 @@
     <ion-content>
       <div class="search-page">
     <!-- Search Header -->
-    <div class="search-header">
+    <div class="search-header page-panel">
       <div class="search-box">
         <svg class="search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -137,9 +137,24 @@ ion-content {
 }
 
 .search-page {
-  max-width: 700px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 16px 16px 40px;
+}
+
+/* Distribute result cards across the width; single column on small screens. */
+.results-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.results-container > .loading-state,
+.results-container > .error-state,
+.results-container > .no-results,
+.results-container > .pagination {
+  grid-column: 1 / -1;
 }
 
 .search-header {
