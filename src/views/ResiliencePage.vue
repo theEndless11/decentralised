@@ -42,20 +42,6 @@
           </ion-list>
         </ion-card-content>
       </ion-card>
-
-      <ion-card>
-        <ion-card-header>
-          <ion-card-title>Cellular Mesh</ion-card-title>
-        </ion-card-header>
-        <ion-card-content>
-          <p class="net-desc">
-            At scale, GenosRTC organises peers into a Cellular Mesh — cells with
-            bridge nodes — cutting peer connections by orders of magnitude versus
-            a full mesh, so large communities stay fast without any central
-            infrastructure.
-          </p>
-        </ion-card-content>
-      </ion-card>
       </div>
     </ion-content>
   </ion-page>
