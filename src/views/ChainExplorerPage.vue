@@ -20,7 +20,13 @@
         </ion-card-header>
 
         <ion-card-content>
-          <div class="blocks-list">
+          <div v-if="!chainStore.blocks.length" class="chain-empty">
+            <p class="chain-empty-title">No blocks yet</p>
+            <p class="chain-empty-sub">
+              Your signed actions — votes, posts and receipts — appear here as they're recorded.
+            </p>
+          </div>
+          <div v-else class="blocks-list">
             <div
               v-for="block in visibleBlocks"
               :key="block.index"
@@ -220,6 +226,25 @@ const actionLabel = (actionType: string) => {
 </script>
 
 <style scoped>
+.chain-empty {
+  text-align: center;
+  padding: 32px 16px 24px;
+}
+
+.chain-empty-title {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: var(--app-text);
+}
+
+.chain-empty-sub {
+  margin: 0 auto;
+  max-width: 320px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--app-text-muted);
+}
+
 .blocks-list {
   display: flex;
   flex-direction: column;
